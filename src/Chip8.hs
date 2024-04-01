@@ -672,8 +672,13 @@ data Emulator = Emulator {
   status ::  Status  -- Emulator status
 }
 
+-- Get the latest state
 latest :: Emulator -> Chip8
 latest = head . states
+
+-- Get the current state (respecting stPos)
+current :: Emulator -> Chip8
+current emu = states emu !! stPos emu
 
 -- Construct a new emulator
 newEmulator :: Chip8 -> [Int] -> Emulator

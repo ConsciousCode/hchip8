@@ -24,7 +24,7 @@ import Control.Monad (void, forever)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.State (modify, get, gets, when)
 
-import Chip8 (Chip8, Emulator, pixel, width, height, emulate, countdown, rPC, rI, rV, delayT, soundT, readWord, dis, stack, latest, update, states, stPos, togglePause, forward, rewind)
+import Chip8 (Chip8, Emulator, pixel, width, height, emulate, countdown, rPC, rI, rV, delayT, soundT, readWord, dis, stack, latest, update, states, stPos, togglePause, forward, rewind, current)
 import Util (lpad, rpad, hexPad, intersperse, join, vReg, m1)
 
 screenAttr :: AttrName
@@ -124,16 +124,17 @@ drawCodes (vm:vms) old acc
 drawCodesBox :: Emulator -> Widget ()
 drawCodesBox emu = (border . setAvailableSize (16, 5) . vBox) codes
   where
-    st = drop (stPos emu) (states emu)
+    ss = states emu
+    st = stPos emu
+    vm = ss!!st
     pc = fromIntegral (rPC vm)
-    vm = latest emu
-    codes = drawCodes st pc [drawCode vm pc]
+    codes = drawCodes (drop st ss) pc [drawCode vm pc]
 
 -- Add a border as well so we can see an empty screen
 drawScreen :: AppState -> Widget ()
 drawScreen as = borderWithLabel label scr
   where
-    vm = latest $ emulator as
+    vm = current $ emulator as
     label = (str . renderLabel) as
     scr = (withAttr screenAttr . str . renderScreen) vm
 
@@ -142,7 +143,7 @@ draw :: AppState -> [Widget ()]
 draw as = [drawScreen as <+> drawVFile vm <=> drawStatus vm <=> drawCodesBox emu <+> drawStack vm]
   where
     emu = emulator as
-    vm = latest emu
+    vm = current emu
 
 -- Total state of the app
 data AppState = AppState {
