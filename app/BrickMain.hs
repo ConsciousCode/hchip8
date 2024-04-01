@@ -24,7 +24,7 @@ import Control.Monad (void, forever)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.State (modify, get, gets, when)
 
-import Chip8 (Chip8, Emulator, pixel, width, height, emulate, countdown, rPC, rI, rV, delayT, soundT, readWord, dis, stack, latest, update, states)
+import Chip8 (Chip8, Emulator, pixel, width, height, emulate, countdown, rPC, rI, rV, delayT, soundT, readWord, dis, stack, latest, update, states, stPos)
 import Util (lpad, rpad, hexPad, intersperse, join, vReg, m1)
 
 screenAttr :: AttrName
@@ -106,27 +106,28 @@ drawCodes :: [Chip8] -> Int -> [Widget ()] -> [Widget ()]
 drawCodes [] _ acc = fill ' ':acc -- Ran out of states
 drawCodes (vm:vms) old acc
   -- We're done
-  | length acc >= 5 =                          acc
+  | length acc >= 5 = acc
   -- The recorded state didn't change the PC, ignore it
-  | old == new      = nextRender               acc
-  -- Result of a JMP, add a border to indicate discontinuity
+  | old == new      = nextRender acc
+  -- Result of a branch, add a border to indicate discontinuity
   | old - new /= 2  = if length acc == 4
     then hBorder:acc -- Make sure we don't go over
     else nextRender (code:hBorder:acc)
   -- Consecutive opcodes
-  | otherwise       = nextRender (code        :acc)
+  | otherwise       = nextRender (code:acc)
   where
     nextRender = drawCodes vms new
-    new  = fromIntegral (rPC vm) :: Int
+    new  = fromIntegral (rPC vm)
     code = drawCode vm new
 
 -- Wraps drawCodes in a box
 drawCodesBox :: Emulator -> Widget ()
-drawCodesBox emu = (border . setAvailableSize (16, 5)) codes
+drawCodesBox emu = (border . setAvailableSize (16, 5) . vBox) codes
   where
-    codes = vBox $ drawCodes (states emu) pc [drawCode vm pc]
-    vm = latest emu
+    st = drop (stPos emu) (states emu)
     pc = fromIntegral (rPC vm)
+    vm = latest emu
+    codes = drawCodes st pc [drawCode vm pc]
 
 -- Add a border as well so we can see an empty screen
 drawScreen :: AppState -> Widget ()
@@ -195,7 +196,7 @@ app = App
 -- Now we can finally pull it all together
 run :: Emulator -> IO ()
 run emu = do
-  let delay = 1000000 -- 1 μs ~ 1 MHz
+  let delay = 10000 -- 1 μs ~ 1 MHz
   chan <- newBChan 10
   
   void . forkIO $ forever $ do
