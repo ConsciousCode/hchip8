@@ -452,6 +452,7 @@ encOperands operands = case operands of
     vx x = fromIntegral $ (nibble x) `shiftL` 8 :: Int
     vy y = fromIntegral $ (nibble y) `shiftL` 4 :: Int
 
+-- Encode an instruction into a word
 encode :: Ins -> Word16
 encode (Ins op erands) = encOp op erands .|. encOperands erands
 
@@ -475,6 +476,7 @@ decodeNNN  code = OpNNN     (fromIntegral  (code .&. 0x0FFF))
 
 decodeNNNN code = OpNNNN                    code
 
+-- Decode a word into an instruction
 decode :: Word16 -> Ins
 decode 0x00E0 = Ins CLS OpNone
 decode 0x00EE = Ins RET OpNone
@@ -534,6 +536,7 @@ decode code   = Ins op (de code)
       -- Should never happen
       _ -> (BAD, decodeNNNN)
 
+-- Disassemble an operation
 disOp :: Op -> String
 disOp op = map toLower (show op)
 
@@ -568,6 +571,7 @@ dis code
   | otherwise = disOp op ++ disOperands op erands
   where (Ins op erands) = decode code
 
+-- Format `vx op= ...`
 eqop :: String -> Operands -> String
 eqop op (OpXNN x nn) = vReg x ++ " " ++ op ++ "= " ++ show nn
 eqop op (OpXY  x  y) = vReg x ++ " " ++ op ++ "= " ++ vReg y
@@ -610,31 +614,31 @@ pseudo LDR (OpX   x    ) = "V[:" ++ show x ++ "] = I[:" ++ show x ++ "]"
 
 pseudo _ _ = "???"
 
+-- Disassemble into pseudocode
 disPseudo :: Word16 -> String
 disPseudo code = pseudo op erands
   where (Ins op erands) = decode code
 
--- Execute the VM for one cycle
-execute :: Maybe Int -> Bool -> Chip8 -> Chip8
-execute kev press = execState do
+-- Receive a key event
+keyEvent :: Int -> Bool -> Chip8 -> Chip8
+keyEvent kev press = execState do
   waitr <- gets waitR
+  case waitr of
+    Nothing -> pure () -- Not waiting
+    Just kr -> setV kr (fromIntegral kev)
   
-  case kev of
-    Nothing -> pure () -- No event, nothing to update
-    Just ki -> do
-      -- Update the keys register
-      k <- gets keys
-      modify $ \s -> s {
-        keys = (if press then setBit else clearBit) k ki
-      }
-      case waitr of
-        Nothing -> pure () -- Not waiting
-        Just kr -> setV kr (fromIntegral ki)
-  
-  -- modify countdown
-  
-  -- If we're not waiting or an event came in, run the VM
-  when (isNothing waitr || isJust kev) do
+  k <- gets keys
+  modify $ \s -> s {
+    keys  = (if press then setBit else clearBit) k kev,
+    waitR = Nothing
+  }
+
+-- Execute the VM for one cycle
+execute :: Chip8 -> Chip8
+execute = execState do
+  waitr <- gets waitR
+  -- If we're not waiting, run the VM
+  when (isNothing waitr) do
     pc   <- gets rPC
     code <- gets (readWord pc)
     let (Ins op erands) = decode code
@@ -642,8 +646,8 @@ execute kev press = execState do
     modifyPC (+2)
 
 -- Call at a rate of 60 Hz
-chip8Countdown :: Chip8 -> Chip8
-chip8Countdown = execState do
+countdown :: Chip8 -> Chip8
+countdown = execState do
   dt <- gets delayT
   st <- gets soundT
   modify $ \s -> s {
@@ -681,64 +685,48 @@ newEmulator state bs = Emulator {
   status = Running
 }
 
+-- Pause the emulator
+pause :: Emulator -> Emulator
+pause emu = emu { status = Paused }
+
 -- Try to rewind the emulator to the next oldest state
 rewind :: Emulator -> Emulator
-rewind emu = emu {
-  stPos  = min (stPos emu + 1) (length (states emu) - 1),
-  status = Paused -- Implicitly pause for rewinds
+rewind emu = pause emu {
+  stPos = min (stPos emu + 1) (length (states emu) - 1)
 }
 
 -- Try to move to the next state
 forward :: Emulator -> Emulator
-forward emu = emu {
-  stPos  = max (stPos emu - 1) 0,
-  status = Paused -- Implicitly pause for forwarding
+forward emu = pause emu {
+  stPos = max (stPos emu - 1) 0
 }
-
--- Pause the emulator
-pause :: Emulator -> Emulator
-pause = execState do
-  modify $ \s -> s { status = Paused }
 
 -- Resume the emulator after it was paused
 resume :: Emulator -> Emulator
-resume = execState do
-  ss <- gets states
-  sp <- gets stPos
-  modify $ \s -> s {
-    stPos  = 0, -- overwrite any future states
-    states = drop sp ss,
-    status = Resumed
+resume emu = emu {
+  stPos  = 0, -- overwrite any future states
+  states = drop (stPos emu) (states emu),
+  status = Resumed
+}
+
+-- Append a new updated state
+update :: (Chip8 -> Chip8) -> Emulator -> Emulator
+update todo emu = case status emu of
+  Paused -> emu -- Do nothing when paused
+  _      -> emu {
+    states = take (maxPos emu) $ todo (latest emu):states emu,
+    status = Running -- Successful update is always running
   }
 
--- Call at a rate of 60 Hz
-countdown :: Emulator -> Emulator
-countdown = execState do
-  st <- gets status
-  when (st /= Paused) do
-    ss <- gets states
-    mp <- gets maxPos
-    modify $ \s -> s {
-      states = take mp $ chip8Countdown (head ss):ss
-    }
-
 -- Run the emulator for one cycle
-emulate :: Maybe Int -> Bool -> Emulator -> Emulator
-emulate kev press = execState do
+emulate :: Emulator -> Emulator
+emulate = execState do
   st <- gets status
   when (st /= Paused) do
     bs <- gets breaks
-    ss <- gets states
-    mp <- gets maxPos
-    let
-      old = head ss
-      pc  = fromIntegral (rPC old) :: Int
+    pc <- gets (fromIntegral . rPC . latest)
     
     if st /= Resumed && pc `elem` bs then
-      -- Reached a breakpoint
-      modify $ \s -> s { status = Paused }
+      modify pause -- Reached a breakpoint
     else
-      modify $ \s -> s {
-        states = take mp $ execute kev press old:ss,
-        status = Running
-      }
+      modify (update execute)

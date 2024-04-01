@@ -2,7 +2,7 @@
 
 module BrickMain (run) where
 
-import Brick ((<+>), (<=>), App(..), Padding(Pad), halt, customMain, neverShowCursor, hBox, vBox, hLimit, vLimit, hSize, padBottom, fill, AttrMap, attrMap, attrName, AttrName, withAttr, on, fg)
+import Brick ((<+>), (<=>), App(..), Padding(Pad, Max), padRight, halt, customMain, neverShowCursor, hBox, vBox, hLimit, vLimit, hSize, padBottom, fill, AttrMap, attrMap, attrName, AttrName, withAttr, on, fg, setAvailableSize)
 import Brick.Types (Widget, BrickEvent(..), EventM, put)
 import Brick.Widgets.Border (borderWithLabel, hBorder, vBorder, border)
 import Brick.Widgets.Core (str)
@@ -24,8 +24,8 @@ import Control.Monad (void, forever)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.State (modify, get, gets, when)
 
-import Chip8 (Chip8, Emulator, pixel, width, height, emulate, countdown, rPC, rI, rV, delayT, soundT, readWord, dis, stack, latest)
-import Util (rpad, hexPad, intersperse, join, vReg, m1)
+import Chip8 (Chip8, Emulator, pixel, width, height, emulate, countdown, rPC, rI, rV, delayT, soundT, readWord, dis, stack, latest, update, states)
+import Util (lpad, rpad, hexPad, intersperse, join, vReg, m1)
 
 screenAttr :: AttrName
 screenAttr = attrName "screenAttr"
@@ -51,6 +51,7 @@ braille gb = chr $ foldl (.|.) 0x2800 [
       [2, 5],
       [6, 7]]
 
+-- Render the screen as a 32x8 grid of braille characters
 renderScreen :: Chip8 -> String
 renderScreen vm = concat [
     [braille (getb (x*2) (y*4))
@@ -59,19 +60,23 @@ renderScreen vm = concat [
   ]
   where getb x y ox oy = pixel vm (x + ox) (y + oy)
 
+-- Placeholder for what to put on the screen's border
 renderLabel :: AppState -> String
 renderLabel as = "" -- show (xxx as)
 
+-- Draw a widget for a register
 drawV :: Chip8 -> Int -> Widget ()
 drawV vm x = str $ vReg x ++ " " ++ hexPad 2 (v!x)
   where v = rV vm
 
+-- Draw all the registers
 drawVFile :: Chip8 -> Widget ()
 drawVFile vm = borderWithLabel (str "VX")
   $ vLimit 8 $ rCol [0..7] <+> vBorder <+> rCol [8..0xF]
   where
     rCol = vBox . map (drawV vm)
 
+-- Draw the call stack
 drawStack :: Chip8 -> Widget ()
 drawStack vm = build (stack vm)
   where
@@ -83,6 +88,7 @@ drawStack vm = build (stack vm)
       hLimit 3 . vLimit 12 . vBox)
       (((map (str . hexPad 3) . reverse) sp) ++ [fill ' '])
 
+-- Draw the VM status
 drawStatus :: Chip8 -> Widget ()
 drawStatus vm = vLimit 3 . border . hBox . intersperse vBorder . map str $ [
     "PC "    ++ hexPad 3 (rPC    vm),
@@ -91,11 +97,36 @@ drawStatus vm = vLimit 3 . border . hBox . intersperse vBorder . map str $ [
     "sound " ++ hexPad 2 (soundT vm)
   ]
 
-drawCode :: Chip8 -> Widget ()
-drawCode vm = (border . str) content
+-- Draw one opcode
+drawCode :: Chip8 -> Int -> Widget ()
+drawCode vm pc = padRight Max $ str $ hexPad 3 pc ++ " " ++ rpad " " 16 (dis (readWord pc vm))
+
+-- Recursively draw the last 5 opcodes
+drawCodes :: [Chip8] -> Int -> [Widget ()] -> [Widget ()]
+drawCodes [] _ acc = fill ' ':acc -- Ran out of states
+drawCodes (vm:vms) old acc
+  -- We're done
+  | length acc >= 5 =                          acc
+  -- The recorded state didn't change the PC, ignore it
+  | old == new      = nextRender               acc
+  -- Result of a JMP, add a border to indicate discontinuity
+  | old - new /= 2  = if length acc == 4
+    then hBorder:acc -- Make sure we don't go over
+    else nextRender (code:hBorder:acc)
+  -- Consecutive opcodes
+  | otherwise       = nextRender (code        :acc)
   where
-    pc = rPC vm
-    content = hexPad 3 pc ++ " " ++ rpad " " 16 (dis (readWord pc vm))
+    nextRender = drawCodes vms new
+    new  = fromIntegral (rPC vm) :: Int
+    code = drawCode vm new
+
+-- Wraps drawCodes in a box
+drawCodesBox :: Emulator -> Widget ()
+drawCodesBox emu = (border . setAvailableSize (16, 5)) codes
+  where
+    codes = vBox $ drawCodes (states emu) pc [drawCode vm pc]
+    vm = latest emu
+    pc = fromIntegral (rPC vm)
 
 -- Add a border as well so we can see an empty screen
 drawScreen :: AppState -> Widget ()
@@ -105,13 +136,17 @@ drawScreen as = borderWithLabel label scr
     label = (str . renderLabel) as
     scr = (withAttr screenAttr . str . renderScreen) vm
 
+-- Draw the whole program
 draw :: AppState -> [Widget ()]
-draw as = [drawScreen as <+> drawVFile vm <=> drawStatus vm <=> drawCode vm <+> drawStack vm]
-  where vm = latest $ emulator as
+draw as = [drawScreen as <+> drawVFile vm <=> drawStatus vm <=> drawCodesBox emu <+> drawStack vm]
+  where
+    emu = emulator as
+    vm = latest emu
 
+-- Total state of the app
 data AppState = AppState {
-  emulator  :: Emulator,   -- VM state
-  lastFrame :: UTCTime  -- Last time a frame occurred
+  emulator  :: Emulator, -- VM state
+  lastFrame :: UTCTime   -- Last time a frame occurred
 }
 
 data ClockTick = Tick
@@ -122,17 +157,12 @@ handleEvent (AppEvent Tick) = do
   lf  <- gets lastFrame
   let dt = nominalDiffTimeToSeconds (diffUTCTime cur lf)
   when (dt >= 1/60) do
-    -- It took me like 12 hours to figure out why my countdown "wasn't running"
-    --  - I was reusing vm which I got at the start, so it didn't reflect the
-    --  updates in this `when` monad
-    vm <- gets emulator
     modify $ \s -> s {
-      lastFrame = cur,
-      emulator = countdown vm -- Count down timers every frame
+      emulator  = update countdown (emulator s),
+      lastFrame = cur -- Countdown every frame
     }
   
-  vm <- gets emulator
-  modify $ \s -> s { emulator = emulate Nothing False vm }
+  modify $ \s -> s { emulator = emulate (emulator s) }
 
 -- So CTRL+C exits properly
 handleEvent (VtyEvent (V.EvKey (V.KChar 'c') [V.MCtrl])) = halt
@@ -165,7 +195,7 @@ app = App
 -- Now we can finally pull it all together
 run :: Emulator -> IO ()
 run emu = do
-  let delay = 10000 -- 1 μs ~ 1 MHz
+  let delay = 1000000 -- 1 μs ~ 1 MHz
   chan <- newBChan 10
   
   void . forkIO $ forever $ do
