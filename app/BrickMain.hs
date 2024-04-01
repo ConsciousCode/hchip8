@@ -12,7 +12,7 @@ import Brick.AttrMap ()
 
 import qualified Graphics.Vty as V
 import qualified Graphics.Vty.CrossPlatform as VCP
-import Graphics.Vty.Input.Events (Key(KEnter))
+import Graphics.Vty.Input.Events (Key(KEnter, KLeft, KRight))
 
 import Data.Time.Clock (UTCTime, getCurrentTime, diffUTCTime, nominalDiffTimeToSeconds)
 import Data.Char (chr)
@@ -24,7 +24,7 @@ import Control.Monad (void, forever)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.State (modify, get, gets, when)
 
-import Chip8 (Chip8, Emulator, pixel, width, height, emulate, countdown, rPC, rI, rV, delayT, soundT, readWord, dis, stack, latest, update, states, stPos, togglePause)
+import Chip8 (Chip8, Emulator, pixel, width, height, emulate, countdown, rPC, rI, rV, delayT, soundT, readWord, dis, stack, latest, update, states, stPos, togglePause, forward, rewind)
 import Util (lpad, rpad, hexPad, intersperse, join, vReg, m1)
 
 screenAttr :: AttrName
@@ -150,6 +150,10 @@ data AppState = AppState {
   lastFrame :: UTCTime   -- Last time a frame occurred
 }
 
+-- Update the emulator with a mutation function
+updateEmu :: (Emulator -> Emulator) -> AppState -> AppState
+updateEmu todo as = as { emulator = todo (emulator as) }
+
 data ClockTick = Tick
 -- Available events: BrickEvent in Brick.Types.
 handleEvent :: BrickEvent () ClockTick -> EventM () AppState ()
@@ -170,8 +174,12 @@ handleEvent (VtyEvent (V.EvKey (V.KChar 'c') [V.MCtrl])) = halt
 
 handleEvent (VtyEvent (V.EvKey key [])) = case key of
   KEnter -> do
-    modify $ \s -> s { emulator = togglePause (emulator s) }
-    
+    modify $ updateEmu togglePause
+  KLeft  -> do
+    modify $ updateEmu rewind
+  KRight -> do
+    modify $ updateEmu forward
+
 --handleEvent (VtyEvent (V.EvKey (V.KChar ' ') [])) = do
 --  modify $ \s -> s { }
 
