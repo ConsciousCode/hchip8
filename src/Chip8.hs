@@ -280,7 +280,8 @@ apply JMP (OpNNN nnn) = modify $ \s -> s { rPC = nnn - 2 }
 apply JSR (OpNNN nnn) = do
   old <- gets rPC
   ss  <- gets stack
-  modify $ \s -> s { rPC = nnn, stack = old:ss }
+  -- -2 so the implicit +2 gets to the right instruction
+  modify $ \s -> s { rPC = nnn - 2, stack = old:ss }
 
 -- Eta reduction doesn't work with mixed function-level pattern matching
 apply SEQ z = applySkip (==) z
