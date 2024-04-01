@@ -24,7 +24,7 @@ import Control.Monad (void, forever)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.State (modify, get, gets, when)
 
-import Chip8 (Chip8, Emulator, pixel, width, height, emulate, countdown, rPC, rI, rV, delayT, soundT, readWord, dis, stack, latest, update, states, stPos)
+import Chip8 (Chip8, Emulator, pixel, width, height, emulate, countdown, rPC, rI, rV, delayT, soundT, readWord, dis, stack, latest, update, states, stPos, togglePause)
 import Util (lpad, rpad, hexPad, intersperse, join, vReg, m1)
 
 screenAttr :: AttrName
@@ -168,8 +168,9 @@ handleEvent (AppEvent Tick) = do
 -- So CTRL+C exits properly
 handleEvent (VtyEvent (V.EvKey (V.KChar 'c') [V.MCtrl])) = halt
 
---handleEvent (VtyEvent (V.EvKey key [])) = case key of
---  KEnter -> do
+handleEvent (VtyEvent (V.EvKey key [])) = case key of
+  KEnter -> do
+    modify $ \s -> s { emulator = togglePause (emulator s) }
     
 --handleEvent (VtyEvent (V.EvKey (V.KChar ' ') [])) = do
 --  modify $ \s -> s { }

@@ -689,6 +689,10 @@ newEmulator state bs = Emulator {
 pause :: Emulator -> Emulator
 pause emu = emu { status = Paused }
 
+-- Toggle whether the emulator is paused
+togglePause :: Emulator -> Emulator
+togglePause emu = (if status emu == Paused then resume else pause) emu
+
 -- Try to rewind the emulator to the next oldest state
 rewind :: Emulator -> Emulator
 rewind emu = pause emu {
