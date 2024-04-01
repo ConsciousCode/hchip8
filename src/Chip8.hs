@@ -701,9 +701,13 @@ rewind emu = pause emu {
 
 -- Try to move to the next state
 forward :: Emulator -> Emulator
-forward emu = pause emu {
-  stPos = max (stPos emu - 1) 0
-}
+forward emu
+  -- If we're at the forefront, continue executing
+  | stPos emu == 0 = forceUpdate execute pemu
+  | otherwise = pemu {
+    stPos = max (stPos emu - 1) 0
+  }
+  where pemu = pause emu
 
 -- Resume the emulator after it was paused
 resume :: Emulator -> Emulator
@@ -713,12 +717,17 @@ resume emu = emu {
   status = Resumed
 }
 
+-- Update even if paused
+forceUpdate :: (Chip8 -> Chip8) -> Emulator -> Emulator
+forceUpdate todo emu = emu {
+  states = take (maxPos emu) $ todo (latest emu):states emu
+}
+
 -- Append a new updated state
 update :: (Chip8 -> Chip8) -> Emulator -> Emulator
 update todo emu = case status emu of
   Paused -> emu -- Do nothing when paused
-  _      -> emu {
-    states = take (maxPos emu) $ todo (latest emu):states emu,
+  _      -> forceUpdate todo emu {
     status = Running -- Successful update is always running
   }
 
