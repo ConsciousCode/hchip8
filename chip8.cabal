@@ -1,0 +1,69 @@
+cabal-version:      3.0
+name:               chip8
+version:            0.1.0.0
+-- synopsis:
+-- description:
+license:            BSD-2-Clause
+license-file:       LICENSE
+author:             Robert McDaniels
+maintainer:         rmcdan04@unm.edu
+-- copyright:
+category:           Game
+build-type:         Simple
+extra-doc-files:    CHANGELOG.md
+-- extra-source-files:
+
+common warnings
+    ghc-options: -Wall -threaded
+
+library
+    import:           warnings
+    exposed-modules:  Chip8
+                    , Util
+    -- other-extensions:
+    build-depends:    base ^>=4.13.0.0
+                    , binary
+                    , bytestring
+                    , time
+                    , random
+                    , vector
+                    , mtl
+    hs-source-dirs:   src
+    default-language: Haskell2010
+
+executable chip8
+    import:           warnings
+    main-is:          Main.hs
+    other-modules:    BrickMain
+    build-depends:    base ^>=4.13.0.0
+                    , binary
+                    , bytestring
+                    , time
+                    , random
+                    , vector
+                    , mtl
+                    , chip8
+                    , gloss
+                    , brick
+                    , vty
+                    , vty-crossplatform
+    hs-source-dirs:   app
+    default-language: Haskell2010
+
+test-suite chip8-test
+    import:           warnings
+    default-language: Haskell2010
+    -- other-modules:
+    -- other-extensions:
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    main-is:          Main.hs
+    build-depends:
+        base ^>=4.17.2.1
+      , binary
+      , bytestring
+      , time
+      , random
+      , vector
+      , mtl
+      , chip8
