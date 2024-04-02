@@ -12,11 +12,12 @@ import Brick.AttrMap ()
 
 import qualified Graphics.Vty as V
 import qualified Graphics.Vty.CrossPlatform as VCP
-import Graphics.Vty.Input.Events (Key(KEnter, KLeft, KRight))
+import Graphics.Vty.Input.Events (Key(KChar, KEnter, KLeft, KRight))
 
 import Data.Time.Clock (UTCTime, getCurrentTime, diffUTCTime, nominalDiffTimeToSeconds)
 import Data.Char (chr)
 import Data.Bits ((.|.), bit)
+import Data.List (elemIndex)
 import Data.Vector.Unboxed (toList, (!))
 
 import Control.Concurrent (threadDelay, forkIO)
@@ -24,7 +25,7 @@ import Control.Monad (void, forever)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.State (modify, get, gets, when)
 
-import Chip8 (Chip8, Emulator, pixel, width, height, emulate, countdown, rPC, rI, rV, delayT, soundT, readWord, dis, stack, latest, update, states, stPos, togglePause, forward, rewind, current)
+import Chip8 (Chip8, Emulator, pixel, width, height, emulate, countdown, rPC, rI, rV, delayT, soundT, readWord, dis, stack, latest, update, states, stPos, togglePause, forward, rewind, current, keyEvent)
 import Util (lpad, rpad, hexPad, intersperse, join, vReg, m1, PColor)
 
 screenAttr :: AttrName
@@ -216,10 +217,20 @@ handleEvent (VtyEvent (V.EvKey (V.KChar 'c') [V.MCtrl])) = halt
 
 handleEvent (VtyEvent (V.EvKey key [])) = do
   modify $ updateEmu case key of
-    KEnter -> togglePause
-    KLeft  -> rewind
-    KRight -> forward
-    _      -> id
+    KEnter  -> togglePause
+    KLeft   -> rewind
+    KRight  -> forward
+    KChar c
+      | c `elem` kp -> case c `elemIndex` kp of
+        Nothing -> id
+        Just k  -> update $ keyEvent k True
+    _ -> id
+    where -- Chip-8 hex keypad mapping
+      kp =
+        "1234\
+        \QWER\
+        \ASDF\
+        \ZXCV"
 
 -- Any other event just do nothing
 handleEvent _ = return ()
