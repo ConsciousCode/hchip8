@@ -57,7 +57,8 @@ data Chip8 = Chip8 {
   rng    :: [Int],        -- Infinite list of random numbers
   width  ::  Int,         -- Width of the screen
   height ::  Int,         -- Height of the screen
-  cycles ::  Int          -- Total cycles of the VM
+  cycles ::  Int,         -- Total cycles of the VM
+  frames ::  Int          -- Total frames of the VM
 }
 
 -- Construct a new VM
@@ -79,7 +80,8 @@ newChip8 rom rand = Chip8 {
   screen = generate (w*h) (const False),
   width  = w,
   height = h,
-  cycles = 0
+  cycles = 0,
+  frames = 0
 }
   where
     w = 64
@@ -687,9 +689,11 @@ execute = execState do
 -- Call at a rate of 60 Hz
 countdown :: Chip8 -> Chip8
 countdown = execState do
+  fs <- gets frames
   dt <- gets delayT
   st <- gets soundT
   modify $ \s -> s {
+    frames = fs + 1,
     delayT = if dt == 0 then 0 else dt - 1,
     soundT = if st == 0 then 0 else st - 1
   }

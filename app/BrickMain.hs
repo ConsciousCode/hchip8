@@ -18,15 +18,17 @@ import Data.Time.Clock (UTCTime, getCurrentTime, diffUTCTime, nominalDiffTimeToS
 import Data.Char (chr)
 import Data.Bits ((.|.), bit)
 import Data.List (elemIndex)
-import Data.Vector.Unboxed (toList, (!))
+import Data.Vector.Unboxed (Vector, generate, toList, (!), (//))
 
 import Control.Concurrent (threadDelay, forkIO)
 import Control.Monad (void, forever)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.State (modify, get, gets, when)
+import Control.Monad.State (modify, get, gets, when, mapM_)
 
-import Chip8 (Chip8, Emulator, pixel, width, height, emulate, countdown, rPC, rI, rV, delayT, soundT, readWord, dis, stack, latest, update, states, stPos, togglePause, forward, rewind, current, keyEvent, keys, clearKeys, cycles)
+import Chip8 (Chip8, Emulator, pixel, width, height, emulate, countdown, rPC, rI, rV, delayT, soundT, readWord, dis, stack, latest, update, states, stPos, togglePause, forward, rewind, current, keyEvent, keys, clearKeys, cycles, frames)
 import Util (lpad, rpad, hexPad, hexInt, intersperse, join, vReg, m1, PColor, bin, filterJust)
+
+type Vec = Vector
 
 screenAttr :: AttrName
 screenAttr = attrName "screenAttr"
@@ -134,11 +136,11 @@ drawStatus :: Chip8 -> Widget ()
 drawStatus vm = vBox [ss, borderWithLabel (str "Keys") (str ks)]
   where
     ss = vLimit 3 . border . hBox . intersperse vBorder . map str $ [
-      "I "     ++ hexPad 3 (rI     vm),
-      "delay " ++ hexPad 2 (delayT vm),
-      "sound " ++ hexPad 2 (soundT vm),
-      "cycles " ++ show     (cycles vm)
-      ]
+      "I "      ++ hexPad 3 (rI     vm),
+      "delay "  ++ hexPad 2 (delayT vm),
+      "sound "  ++ hexPad 2 (soundT vm),
+      "cycles " ++ show     (cycles vm),
+      "frames " ++ show     (frames vm)]
     ks = (reverse . lpad "0" 16 . bin . keys $ vm) ++ "\n" ++ ['0'..'9'] ++ ['A'..'F']
 
 -- Draw one opcode
@@ -188,10 +190,11 @@ draw as = [drawScreen as <+> drawVFile vm <=> drawStatus vm <=> drawCodesBox emu
     emu = emulator as
     vm = current emu
 
--- Total state of the app
+-- Total state of the apppress a key, there's a short delay
 data AppState = AppState {
   -- How to render the screen
   render    :: Chip8 -> String,
+  keyTimes  :: Vec Int,  -- List of cycles mod 60 to emulate key releases
   emulator  :: Emulator, -- VM state
   lastFrame :: UTCTime   -- Last time a frame occurred
 }
@@ -208,9 +211,15 @@ handleEvent (AppEvent Tick) = do
   lf  <- gets lastFrame
   let dt = nominalDiffTimeToSeconds (diffUTCTime cur lf)
   when (dt >= 1/60) do
-    emu <- gets emulator
-    when (cycles (current emu) `mod` 20 == 0) do
-      modify $ updateEmu (update clearKeys)
+    kt <- gets keyTimes
+    fs <- gets (frames . current . emulator)
+    mapM_ (modify . updateEmu . update) [
+      keyEvent i False
+      | i <- [0..15],
+        fs - kt!i > 40 -- clear key after 30 frames / 1 seconds
+      ]
+    --when (cycles (current emu) `mod` 60 == ) do
+    --  modify $ updateEmu (update clearKeys)
     
     modify $ \s -> s {
       emulator  = update countdown (emulator s),
@@ -223,15 +232,22 @@ handleEvent (AppEvent Tick) = do
 handleEvent (VtyEvent (V.EvKey (V.KChar 'c') [V.MCtrl])) = halt
 
 handleEvent (VtyEvent (V.EvKey key [])) = do
-  modify $ updateEmu case key of
-    KEnter  -> togglePause
-    KLeft   -> rewind
-    KRight  -> forward
+  case key of
+    KEnter -> modify $ updateEmu togglePause
+    KLeft  -> modify $ updateEmu rewind
+    KRight -> modify $ updateEmu forward
     KChar c
       | c `elem` kp -> case c `elemIndex` kp of
-        Nothing -> id
-        Just k  -> update $ keyEvent (ix!!k) True
-    _ -> id
+        Nothing -> pure ()
+        Just k  -> do
+          let ixk = ix!!k
+          emu <- gets emulator
+          modify $ \s -> s {
+            emulator = update (keyEvent ixk True) emu,
+            keyTimes = keyTimes s//[(ixk, frames (latest emu))]
+          }
+          
+    _ -> pure ()
     where -- Chip-8 hex keypad mapping
       kp = -- Actual keys
         "1234\
@@ -279,7 +295,7 @@ run fg bg emu = do
   let builder = VCP.mkVty V.defaultConfig
   let rf = renderScreen char2x3 2 3
   cur <- liftIO getCurrentTime
-  let as = AppState rf emu cur
+  let as = AppState rf (generate 16 (const 0)) emu cur
   initialVty <- builder
   _ <- customMain initialVty builder (Just chan) app as
   return ()
