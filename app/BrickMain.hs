@@ -30,6 +30,12 @@ import Util (lpad, rpad, hexPad, intersperse, join, vReg, m1, PColor)
 screenAttr :: AttrName
 screenAttr = attrName "screenAttr"
 
+curInsAttr :: AttrName
+curInsAttr = attrName "curInsAttr"
+
+brInsAttr :: AttrName
+brInsAttr = attrName "brInsAttr"
+
 -- Construct a function which takes a function for getting bits and returns
 --  a character representing some block of pixels
 charFrom :: String -> [[Int]] -> (Int -> Int -> Bool) -> Char
@@ -144,9 +150,7 @@ drawCodes (vm:vms) old acc
   -- The recorded state didn't change the PC, ignore it
   | old == new      = nextRender acc
   -- Result of a branch, add a border to indicate discontinuity
-  | old - new /= 2  = if length acc == 4
-    then hBorder:acc -- Make sure we don't go over
-    else nextRender (code:hBorder:acc)
+  | old - new /= 2  = nextRender (withAttr brInsAttr code:acc)
   -- Consecutive opcodes
   | otherwise       = nextRender (code:acc)
   where
@@ -162,7 +166,7 @@ drawCodesBox emu = (border . setAvailableSize (16, 5) . vBox) codes
     st = stPos emu
     vm = ss!!st
     pc = fromIntegral (rPC vm)
-    codes = drawCodes (drop st ss) pc [drawCode vm pc]
+    codes = drawCodes (drop st ss) pc [withAttr curInsAttr $ drawCode vm pc]
 
 -- Add a border as well so we can see an empty screen
 drawScreen :: AppState -> Widget ()
@@ -224,7 +228,9 @@ handleEvent _ = return ()
 theMap :: AttrMap
 theMap = attrMap V.defAttr
   [
-    (screenAttr, V.yellow `on` V.color240 127 64 0)
+    (screenAttr, V.yellow `on` V.color240 127 64 0),
+    (curInsAttr, V.defAttr `V.withStyle` V.reverseVideo),
+    (brInsAttr, V.defAttr `V.withStyle` V.underline)
   ]
 
 app :: App AppState ClockTick ()

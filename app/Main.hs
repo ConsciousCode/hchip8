@@ -49,12 +49,12 @@ exit = exitSuccess
 
 -- Disassemble with a given dis function
 cliDis :: (Word16 -> String) -> String -> IO ()
-cliDis f file = do
+cliDis df file = do
   rom  <- BL.readFile file
   let prog = runGet getWord16beList rom
   (putStrLn . join "\n") [
-    hexPad 3 (0x200 + addr*2) ++ " " ++ ins
-    | (ins, addr) <- zip (map f prog) [0..]
+    hexPad 3 (0x200 + addr*2) ++ " " ++ df ins
+    | (addr, ins) <- zip [0..] prog
     ]
 
 parseBreakpoints :: String -> [Int]
