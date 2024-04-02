@@ -109,15 +109,19 @@ modifyPC f = do
   old <- gets rPC
   modify $ \s -> s { rPC = f old }
 
+-- Build a word from bytes
+buildWord :: Integral a => a -> a -> Word16
+buildWord hi lo = (ih `shiftL` 8) .|. il
+  where
+    ih = fromIntegral hi :: Word16
+    il = fromIntegral lo :: Word16
+
 -- Read a word from memory
 readWord :: Integral a => a -> Chip8 -> Word16
-readWord addr vm = fromIntegral word
+readWord addr vm = buildWord (mem!ia) (mem!(ia+1))
   where
     ia   = fromIntegral addr
     mem  = memory vm
-    hi   = fromIntegral $ mem!(ia  ) :: Int
-    lo   = fromIntegral $ mem!(ia+1) :: Int
-    word = (hi `shiftL` 8) .|. lo
 
 -- Embed a position into an offset into the 1D screen vector
 screenIndex :: Int -> Int -> Chip8 -> Int
@@ -130,16 +134,35 @@ screenIndex x y vm = yy*(width vm) + xx
 pixel :: Chip8 -> Int -> Int -> Bool
 pixel vm x y = screen vm ! screenIndex x y vm
 
--- Blit a sprite to the screen
-bitBlit :: Integral a => a -> a -> Vec Word8 -> State Chip8 Bool
-bitBlit x y spr = do
+bitBlit16 :: Integral a => a -> a -> Vec Word8 -> State Chip8 Bool
+bitBlit16 x y spr = do
+  vm  <- get
+  let
+    ix  = fromIntegral x `mod` width  vm :: Int
+    iy  = fromIntegral y `mod` height vm :: Int
+    scr = screen vm
+    updates = [ -- Expand into (index, bit) pairs
+      let
+        sw = buildWord (spr!(j*2)) (spr!(j*2 + 1))
+        si = screenIndex (ix + i) (iy + j) vm
+        bb = sw `testBit` fromIntegral (15 - i)
+      in (si, bb)
+      | i <- [0..15],
+        j <- [0..15]
+      ]
+  modify $ \s -> s { screen = accum xor scr updates }
+  -- Since we have the updates list, we can ask if a collision occurred
+  return $ any (\(i, u) -> (scr!i) && u) updates
+
+bitBlit8 :: Integral a => a -> a -> Vec Word8 -> State Chip8 Bool
+bitBlit8 x y spr = do
   vm  <- get
   let
     ix  = fromIntegral x `mod` width  vm :: Int
     iy  = fromIntegral y `mod` height vm :: Int
     scr = screen vm
     sw  = 8
-    sh  = V.length spr    
+    sh  = V.length spr
     updates = [ -- Expand into (index, bit) pairs
       (screenIndex (ix + i) (iy + j) vm, (spr!j) `testBit` fromIntegral (7 - i))
       | i <- m1 [1..sw],
@@ -323,9 +346,13 @@ apply DRW (OpXYN x y n) = do
   mem <- gets memory
   let
     ss = fromIntegral spr
-    ni = fromIntegral n
-    nn = if ni == 0 then 16 else ni
-  collision <- bitBlit vx vy (slice ss nn mem)
+    nn = fromIntegral n
+  
+  collision <-
+    if nn == 0 then
+      bitBlit16 vx vy (slice ss 32 mem)
+    else
+      bitBlit8  vx vy (slice ss nn mem)
   setV 0xF ((fromIntegral . fromEnum) collision)
 
 apply SKE (OpX x) = do
