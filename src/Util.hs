@@ -18,10 +18,19 @@ unfold p h t x = go x []
       | p y       = go (t y) (h y : acc)
       | otherwise = acc
 
+-- Generic base conversion
+toBase :: Integral a => Int -> String -> a -> String
+toBase _ ds 0 = [head ds]
+toBase base ds x = unfold (>0) digit (`div` base) (fromIntegral x)
+  where digit d = ds!!(fromIntegral d `mod` base)
+
+-- Convert int to binary string
+bin :: Integral a => a -> String
+bin = toBase 2 "01"
+
+-- Convert int to hex string
 hex :: Integral a => a -> String
-hex 0 = "0"
-hex x = unfold (>0) digit (`div` 16) x
-  where digit d = (['0'..'9'] ++ ['a'..'f'])!!(fromIntegral d `mod` 16)
+hex = toBase 16 (['0'..'9'] ++ ['a'..'f'])
 
 -- Customizable padding
 -- f: space -> to wrap -> wrapped

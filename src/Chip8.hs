@@ -321,7 +321,8 @@ apply DRW (OpXYN x y n) = do
   mem <- gets memory
   let
     ss = fromIntegral spr
-    nn = fromIntegral n
+    ni = fromIntegral n
+    nn = if ni == 0 then 16 else ni
   collision <- bitBlit vx vy (slice ss nn mem)
   setV 0xF ((fromIntegral . fromEnum) collision)
 
@@ -621,6 +622,10 @@ pseudo _ _ = "???"
 disPseudo :: Word16 -> String
 disPseudo code = pseudo op erands
   where (Ins op erands) = decode code
+
+-- Clear all keys
+clearKeys :: Chip8 -> Chip8
+clearKeys vm = vm { keys = 0 }
 
 -- Receive a key event
 keyEvent :: Int -> Bool -> Chip8 -> Chip8

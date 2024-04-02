@@ -25,8 +25,8 @@ import Control.Monad (void, forever)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.State (modify, get, gets, when)
 
-import Chip8 (Chip8, Emulator, pixel, width, height, emulate, countdown, rPC, rI, rV, delayT, soundT, readWord, dis, stack, latest, update, states, stPos, togglePause, forward, rewind, current, keyEvent)
-import Util (lpad, rpad, hexPad, intersperse, join, vReg, m1, PColor)
+import Chip8 (Chip8, Emulator, pixel, width, height, emulate, countdown, rPC, rI, rV, delayT, soundT, readWord, dis, stack, latest, update, states, stPos, togglePause, forward, rewind, current, keyEvent, keys, clearKeys)
+import Util (lpad, rpad, hexPad, intersperse, join, vReg, m1, PColor, bin)
 
 screenAttr :: AttrName
 screenAttr = attrName "screenAttr"
@@ -131,12 +131,14 @@ drawStack vm = build (stack vm)
 
 -- Draw the VM status
 drawStatus :: Chip8 -> Widget ()
-drawStatus vm = vLimit 3 . border . hBox . intersperse vBorder . map str $ [
-    "PC "    ++ hexPad 3 (rPC    vm),
-    "I "     ++ hexPad 3 (rI     vm),
-    "delay " ++ hexPad 2 (delayT vm),
-    "sound " ++ hexPad 2 (soundT vm)
-  ]
+drawStatus vm = vBox [ss, borderWithLabel (str "Keys") (str ks)]
+  where
+    ss = vLimit 3 . border . hBox . intersperse vBorder . map str $ [
+      "I "     ++ hexPad 3 (rI     vm),
+      "delay " ++ hexPad 2 (delayT vm),
+      "sound " ++ hexPad 2 (soundT vm)
+      ]
+    ks = (reverse . lpad "0" 16 . bin . keys $ vm) ++ "\n" ++ ['0'..'9'] ++ ['A'..'F']
 
 -- Draw one opcode
 drawCode :: Chip8 -> Int -> Widget ()
@@ -206,7 +208,7 @@ handleEvent (AppEvent Tick) = do
   let dt = nominalDiffTimeToSeconds (diffUTCTime cur lf)
   when (dt >= 1/60) do
     modify $ \s -> s {
-      emulator  = update countdown (emulator s),
+      emulator  = update (countdown . clearKeys) (emulator s),
       lastFrame = cur -- Countdown every frame
     }
   
@@ -228,9 +230,9 @@ handleEvent (VtyEvent (V.EvKey key [])) = do
     where -- Chip-8 hex keypad mapping
       kp =
         "1234\
-        \QWER\
-        \ASDF\
-        \ZXCV"
+        \qwer\
+        \asdf\
+        \zxcv"
 
 -- Any other event just do nothing
 handleEvent _ = return ()
