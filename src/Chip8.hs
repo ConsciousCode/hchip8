@@ -56,7 +56,8 @@ data Chip8 = Chip8 {
   soundT ::  Word8,       -- Sound timer
   rng    :: [Int],        -- Infinite list of random numbers
   width  ::  Int,         -- Width of the screen
-  height ::  Int          -- Height of the screen
+  height ::  Int,         -- Height of the screen
+  cycles ::  Int          -- Total cycles of the VM
 }
 
 -- Construct a new VM
@@ -71,13 +72,14 @@ newChip8 rom rand = Chip8 {
     zip [0x200..] rom
   ),
   keys   = 0,
+  waitR  = Nothing,
   delayT = 0,
   soundT = 0,
   rng    = rand,
   screen = generate (w*h) (const False),
   width  = w,
   height = h,
-  waitR  = Nothing
+  cycles = 0
 }
   where
     w = 64
@@ -651,7 +653,9 @@ execute = execState do
     code <- gets (readWord pc)
     let (Ins op erands) = decode code
     apply op erands
-    modifyPC (+2)
+    modifyPC (+2) -- Don't reuse pc, it may have changed
+    cyc  <- gets cycles
+    modify $ \s -> s { cycles = cyc + 1 }
 
 -- Call at a rate of 60 Hz
 countdown :: Chip8 -> Chip8

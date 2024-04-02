@@ -25,7 +25,7 @@ import Control.Monad (void, forever)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.State (modify, get, gets, when)
 
-import Chip8 (Chip8, Emulator, pixel, width, height, emulate, countdown, rPC, rI, rV, delayT, soundT, readWord, dis, stack, latest, update, states, stPos, togglePause, forward, rewind, current, keyEvent, keys, clearKeys)
+import Chip8 (Chip8, Emulator, pixel, width, height, emulate, countdown, rPC, rI, rV, delayT, soundT, readWord, dis, stack, latest, update, states, stPos, togglePause, forward, rewind, current, keyEvent, keys, clearKeys, cycles)
 import Util (lpad, rpad, hexPad, intersperse, join, vReg, m1, PColor, bin)
 
 screenAttr :: AttrName
@@ -136,7 +136,8 @@ drawStatus vm = vBox [ss, borderWithLabel (str "Keys") (str ks)]
     ss = vLimit 3 . border . hBox . intersperse vBorder . map str $ [
       "I "     ++ hexPad 3 (rI     vm),
       "delay " ++ hexPad 2 (delayT vm),
-      "sound " ++ hexPad 2 (soundT vm)
+      "sound " ++ hexPad 2 (soundT vm),
+      "cycles " ++ show     (cycles vm)
       ]
     ks = (reverse . lpad "0" 16 . bin . keys $ vm) ++ "\n" ++ ['0'..'9'] ++ ['A'..'F']
 
@@ -207,8 +208,12 @@ handleEvent (AppEvent Tick) = do
   lf  <- gets lastFrame
   let dt = nominalDiffTimeToSeconds (diffUTCTime cur lf)
   when (dt >= 1/60) do
+    emu <- gets emulator
+    when (cycles (current emu) `mod` 20 == 0) do
+      modify $ updateEmu (update clearKeys)
+    
     modify $ \s -> s {
-      emulator  = update (countdown . clearKeys) (emulator s),
+      emulator  = update countdown (emulator s),
       lastFrame = cur -- Countdown every frame
     }
   
