@@ -389,7 +389,9 @@ apply LDR (OpX x) = do
     ix = fromIntegral x
   modify $ \s -> s { rV = v//zip [0..ix] (map (mem!) [ii..]) }
 
-apply _ _ = undefined
+apply op erands = do
+  pc <- gets rPC
+  error ("apply " ++ show op ++ " " ++ show erands ++ " @" ++ hexPad 3 pc)
 
 -- Encode just the operation using operands to disambiguate
 encOp :: Op -> Operands -> Word16

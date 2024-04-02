@@ -30,20 +30,27 @@ import Util (lpad, rpad, hexPad, intersperse, join, vReg, m1)
 screenAttr :: AttrName
 screenAttr = attrName "screenAttr"
 
+-- Construct a function which takes a function for getting bits and returns
+--  a character representing some block of pixels
+charFrom :: String -> [[Int]] -> (Int -> Int -> Bool) -> Char
+charFrom cs ps gb = cs!!
+  foldl (.|.) 0 [
+    if gb x y then bit b else 0
+    | (y, row) <- zip [0..] ps
+    , (x, b  ) <- zip [0..] row
+  ]
+
 {-
 This project most readily adapts to Gloss, but I had a cool idea for how to
  adapt it to Brick as well. Unicode has a braille block which supports
  extended 2x4 braille for a total of 256 combinations. Effectively, this allows
  us to represent 2x4 boolean pixels with a single braille character provided
  the terminal has a size of at least 32x8 (not hard to get).
- -}
 
-braille :: (Int -> Int -> Bool) -> Char
-braille gb = chr $ foldl (.|.) 0x2800 [
-    if gb x y then bit b else 0
-    | (y, row) <- zip [0..] bpos
-    , (x, b  ) <- zip [0..] row
-  ]
+This was the first one I implemented, then generalized into charFrom
+ -}
+charBraille :: (Int -> Int -> Bool) -> Char
+charBraille = charFrom ['\10240'..'\10495'] bpos
   where -- The braille block is ordered like 76543210:
     bpos = [
       [0, 3],
@@ -51,12 +58,39 @@ braille gb = chr $ foldl (.|.) 0x2800 [
       [2, 5],
       [6, 7]]
 
--- Render the screen as a 32x8 grid of braille characters
-renderScreen :: Chip8 -> String
-renderScreen vm = concat [
-    [braille (getb (x*2) (y*4))
-              | x <- m1 [1..(width  vm `div` 2)]
-    ] ++ "\n" | y <- m1 [1..(height vm `div` 4)]
+{-
+Once I implemented using braille, I remembered box drawing and generalized.
+ Braille is still actually the most compact form, because there's no 2x4
+ box drawing (only 1x1, 1x2, and 2x3), but it's also a tad ugly.
+ -}
+
+charAscii :: (Int -> Int -> Bool) -> Char
+charAscii = charFrom " #" [[0]]
+
+char1x1 :: (Int -> Int -> Bool) -> Char
+char1x1 = charFrom " █" [[0]]
+
+char1x2 :: (Int -> Int -> Bool) -> Char
+char1x2 = charFrom " ▀▄█" [[0], [1]]
+
+char2x2 :: (Int -> Int -> Bool) -> Char
+char2x2 = charFrom " ▘▝▀▖▌▞▛▗▚▐▜▄▙▟█" [[0, 1], [2, 3]]
+
+char2x3 :: (Int -> Int -> Bool) -> Char
+char2x3 = charFrom cs [[0, 1], [2, 3], [4, 5]]
+  where
+    cs =
+      " " ++ ['\129792'..'\129811'] ++
+      "▌" ++ ['\129812'..'\129831'] ++
+      "▐" ++ ['\129832'..'\129851'] ++
+      "█"
+
+-- Render the screen using a pixel block rendering function
+renderScreen :: ((Int -> Int -> Bool) -> Char) -> Int -> Int -> Chip8 -> String
+renderScreen cf w h vm = concat [
+    [cf (getb (x*w) (y*h))
+              | x <- m1 [1..(width  vm `div` w)]
+    ] ++ "\n" | y <- m1 [1..(height vm `div` h)]
   ]
   where getb x y ox oy = pixel vm (x + ox) (y + oy)
 
@@ -134,9 +168,10 @@ drawCodesBox emu = (border . setAvailableSize (16, 5) . vBox) codes
 drawScreen :: AppState -> Widget ()
 drawScreen as = borderWithLabel label scr
   where
-    vm = current $ emulator as
+    rf    = render as
+    vm    = current $ emulator as
     label = (str . renderLabel) as
-    scr = (withAttr screenAttr . str . renderScreen) vm
+    scr   = (withAttr screenAttr . str . rf) vm
 
 -- Draw the whole program
 draw :: AppState -> [Widget ()]
@@ -147,6 +182,8 @@ draw as = [drawScreen as <+> drawVFile vm <=> drawStatus vm <=> drawCodesBox emu
 
 -- Total state of the app
 data AppState = AppState {
+  -- How to render the screen
+  render    :: Chip8 -> String,
   emulator  :: Emulator, -- VM state
   lastFrame :: UTCTime   -- Last time a frame occurred
 }
@@ -168,21 +205,17 @@ handleEvent (AppEvent Tick) = do
       lastFrame = cur -- Countdown every frame
     }
   
-  modify $ \s -> s { emulator = emulate (emulator s) }
+  modify $ updateEmu emulate
 
 -- So CTRL+C exits properly
 handleEvent (VtyEvent (V.EvKey (V.KChar 'c') [V.MCtrl])) = halt
 
-handleEvent (VtyEvent (V.EvKey key [])) = case key of
-  KEnter -> do
-    modify $ updateEmu togglePause
-  KLeft  -> do
-    modify $ updateEmu rewind
-  KRight -> do
-    modify $ updateEmu forward
-
---handleEvent (VtyEvent (V.EvKey (V.KChar ' ') [])) = do
---  modify $ \s -> s { }
+handleEvent (VtyEvent (V.EvKey key [])) = do
+  modify $ updateEmu case key of
+    KEnter -> togglePause
+    KLeft  -> rewind
+    KRight -> forward
+    _      -> id
 
 -- Any other event just do nothing
 handleEvent _ = return ()
@@ -191,7 +224,7 @@ handleEvent _ = return ()
 theMap :: AttrMap
 theMap = attrMap V.defAttr
   [
-    (screenAttr, fg V.white `V.withStyle` V.bold)
+    (screenAttr, V.yellow `on` V.color240 127 64 0)
   ]
 
 app :: App AppState ClockTick ()
@@ -214,8 +247,9 @@ run emu = do
     threadDelay delay
   
   let builder = VCP.mkVty V.defaultConfig
+  let rf = renderScreen char32_11 2 3
   cur <- liftIO getCurrentTime
-  let as = AppState emu cur
+  let as = AppState rf emu cur
   initialVty <- builder
   _ <- customMain initialVty builder (Just chan) app as
   return ()

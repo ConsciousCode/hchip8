@@ -35,11 +35,16 @@ parse ["-h"] = usage >> exit
 parse ["dis", file] = cliDis dis file
 parse ["pseudo", file] = cliDis disPseudo file
 parse ["brick", file] = brick file []
-parse ["brick", file, "-b", b] = brick file b
+parse ["brick", file, "-b", b] = brick file (parseBreakpoints b)
 parse [] = brick "resources/octojam1title.ch8" []
 parse _ = usage >> exit
 
-usage = putStrLn "Usage: chip8 [brick <filename>]"
+usage = putStrLn "Usage: chip8 cmd ...\n\
+  \  (nothing)              Run example in brick with no breakpoints.\n\
+  \  dis    <file>          Disassemble a file.\n\
+  \  pseudo <file>          Generate pseudocode disassembly.\n\
+  \  brick  <file> [-b bs]  Run in brick.\n\
+  \    bs Comma-separated list of hex breakpoints."
 exit = exitSuccess
 
 -- Disassemble with a given dis function
@@ -55,12 +60,13 @@ cliDis f file = do
 parseBreakpoints :: String -> [Int]
 parseBreakpoints = filterJust . map hexInt . split ","
 
-brick :: String -> String -> IO ()
+brick :: String -> [Int] -> IO ()
 brick file bs = do
   rom  <- BL.readFile file
   seed <- randomIO
   let rng = randomRs (0, 255) (mkStdGen seed)
   let vm  = newChip8 (BL.unpack rom) rng
-  let emu = newEmulator vm (parseBreakpoints bs)
+  putStrLn $ show bs
+  let emu = newEmulator vm bs
   
   BM.run emu

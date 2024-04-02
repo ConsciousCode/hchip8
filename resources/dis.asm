@@ -31,7 +31,7 @@
             do {
 236             VF = delay
 238         while(VF != 0)
-23A         }
+23A         }"
 23C     while(VA != 25)
 23E     }
 240     VF = 6
