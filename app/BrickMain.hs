@@ -26,7 +26,7 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.State (modify, get, gets, when)
 
 import Chip8 (Chip8, Emulator, pixel, width, height, emulate, countdown, rPC, rI, rV, delayT, soundT, readWord, dis, stack, latest, update, states, stPos, togglePause, forward, rewind, current, keyEvent, keys, clearKeys, cycles)
-import Util (lpad, rpad, hexPad, intersperse, join, vReg, m1, PColor, bin)
+import Util (lpad, rpad, hexPad, hexInt, intersperse, join, vReg, m1, PColor, bin, filterJust)
 
 screenAttr :: AttrName
 screenAttr = attrName "screenAttr"
@@ -230,14 +230,20 @@ handleEvent (VtyEvent (V.EvKey key [])) = do
     KChar c
       | c `elem` kp -> case c `elemIndex` kp of
         Nothing -> id
-        Just k  -> update $ keyEvent k True
+        Just k  -> update $ keyEvent (ix!!k) True
     _ -> id
     where -- Chip-8 hex keypad mapping
-      kp =
+      kp = -- Actual keys
         "1234\
         \qwer\
         \asdf\
         \zxcv"
+      -- Emulating this COSMAC keypad
+      ix = filterJust $ map (\x -> hexInt [x])
+        "123C\
+        \456D\
+        \789E\
+        \A0BF"
 
 -- Any other event just do nothing
 handleEvent _ = return ()
