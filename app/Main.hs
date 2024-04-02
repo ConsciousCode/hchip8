@@ -5,7 +5,7 @@ import qualified BrickMain as BM
 
 import Chip8 (decode, dis, disPseudo, newChip8, newEmulator)
 
-import Util (lpad, split, hexPad, hexInt, join, filterJust)
+import Util (lpad, split, hexPad, hexInt, join, filterJust, PColor(PColor))
 
 import qualified Data.ByteString.Lazy as BL
 import Data.Binary.Get (Get, isEmpty, getWord16be, runGet)
@@ -68,5 +68,6 @@ brick file bs = do
   let vm  = newChip8 (BL.unpack rom) rng
   putStrLn $ show bs
   let emu = newEmulator vm bs
-  
-  BM.run emu
+  let fg = PColor 0 0 0
+  let bg = PColor 0 0 0
+  BM.run fg bg emu

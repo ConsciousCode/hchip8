@@ -124,3 +124,6 @@ hexInt = foldl go (Just 0)
 -- Filter a list of all Nothing and return Just unpacked
 filterJust :: [Maybe a] -> [a]
 filterJust ms = [maybe undefined id m | m <- ms, isJust m]
+
+-- Portable color datum
+data PColor = PColor Int Int Int

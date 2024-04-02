@@ -25,7 +25,7 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.State (modify, get, gets, when)
 
 import Chip8 (Chip8, Emulator, pixel, width, height, emulate, countdown, rPC, rI, rV, delayT, soundT, readWord, dis, stack, latest, update, states, stPos, togglePause, forward, rewind, current)
-import Util (lpad, rpad, hexPad, intersperse, join, vReg, m1)
+import Util (lpad, rpad, hexPad, intersperse, join, vReg, m1, PColor)
 
 screenAttr :: AttrName
 screenAttr = attrName "screenAttr"
@@ -237,9 +237,9 @@ app = App
   }
 
 -- Now we can finally pull it all together
-run :: Emulator -> IO ()
-run emu = do
-  let delay = 10000 -- 1 μs ~ 1 MHz
+run :: PColor -> PColor -> Emulator -> IO ()
+run fg bg emu = do
+  let delay = 1000 -- 1 μs ~ 1 MHz
   chan <- newBChan 10
   
   void . forkIO $ forever $ do
@@ -247,7 +247,7 @@ run emu = do
     threadDelay delay
   
   let builder = VCP.mkVty V.defaultConfig
-  let rf = renderScreen char32_11 2 3
+  let rf = renderScreen char2x3 2 3
   cur <- liftIO getCurrentTime
   let as = AppState rf emu cur
   initialVty <- builder
