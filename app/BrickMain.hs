@@ -26,7 +26,7 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.State (modify, get, gets, when, mapM_)
 
 import Chip8 (Chip8, Emulator, pixel, width, height, emulate, countdown, rPC, rI, rV, delayT, soundT, readWord, dis, stack, latest, update, states, stPos, togglePause, forward, rewind, current, keyEvent, keys, clearKeys, cycles, frames)
-import Util (lpad, rpad, hexPad, hexInt, intersperse, join, vReg, m1, PColor, bin, filterJust)
+import Util (lpad, rpad, hexPad, hexInt, intersperse, join, vReg, m1, bin, filterJust)
 
 type Vec = Vector
 
@@ -216,11 +216,8 @@ handleEvent (AppEvent Tick) = do
     mapM_ (modify . updateEmu . update) [
       keyEvent i False
       | i <- [0..15],
-        fs - kt!i > 40 -- clear key after 30 frames / 1 seconds
+        fs - kt!i > 40 -- clear key after 30 frames / 0.5 seconds
       ]
-    --when (cycles (current emu) `mod` 60 == ) do
-    --  modify $ updateEmu (update clearKeys)
-    
     modify $ \s -> s {
       emulator  = update countdown (emulator s),
       lastFrame = cur -- Countdown every frame
@@ -264,38 +261,72 @@ handleEvent (VtyEvent (V.EvKey key [])) = do
 -- Any other event just do nothing
 handleEvent _ = return ()
 
--- Now lets create our App
-theMap :: AttrMap
-theMap = attrMap V.defAttr
-  [
-    (screenAttr, V.yellow `on` V.color240 127 64 0),
-    (curInsAttr, V.defAttr `V.withStyle` V.reverseVideo),
-    (brInsAttr, V.defAttr `V.withStyle` V.underline)
-  ]
+strColor :: String -> Maybe V.Color
+strColor ""        = Nothing -- So head later won't panic
+strColor "red"     = Just V.red
+strColor "blue"    = Just V.blue
+strColor "green"   = Just V.green
+strColor "yellow"  = Just V.yellow
+strColor "white"   = Just V.white
+strColor "black"   = Just V.black
+strColor "magenta" = Just V.magenta
+strColor "cyan"    = Just V.cyan
+strColor color
+  | head color == '#' = case length color of
+    4 -> case hexInt (tail color) of
+      Nothing  -> Nothing
+      Just ccc -> Just $ V.color240 (r*17) (g*17) (b*17) -- x -> xx
+        where
+          (b, cc) = ccc `divMod` 16
+          (r,  g) =  cc `divMod` 16
+    7 -> case hexInt (tail color) of
+      Nothing  -> Nothing
+      Just c6  -> Just $ V.color240 r g b
+        where
+          (b, c4) = c6 `divMod` 256
+          (r,  g) = c4 `divMod` 256
+    _ -> Nothing
+  | otherwise = Nothing
 
-app :: App AppState ClockTick ()
-app = App
-  { appDraw         = draw
-  , appChooseCursor = neverShowCursor
-  , appHandleEvent  = handleEvent
-  , appStartEvent   = pure ()
-  , appAttrMap      = const theMap
-  }
+strRenderType :: String -> (Chip8 -> String)
+strRenderType srt = case srt of
+  "ascii"   -> renderScreen charAscii   1 1
+  "braille" -> renderScreen charBraille 2 4
+  "1x1"     -> renderScreen char1x1     1 1
+  "1x2"     -> renderScreen char1x2     1 2
+  "2x2"     -> renderScreen char2x2     2 2
+  "2x3"     -> renderScreen char2x3     2 3
+  _         -> strRenderType "2x3"
 
 -- Now we can finally pull it all together
-run :: PColor -> PColor -> Emulator -> IO ()
-run fg bg emu = do
-  let delay = 1000 -- 1 μs ~ 1 MHz
-  chan <- newBChan 10
+run :: String -> String -> String -> Emulator -> IO ()
+run rts fgs bgs emu = do
+  cur <- liftIO getCurrentTime
+  let
+    delay = 1000 -- 1 μs ~ 1 MHz
+    rf = strRenderType rts
+    fg = maybe V.white id $ strColor fgs
+    bg = maybe V.black id $ strColor bgs
+    
+    as = AppState rf (generate 16 (const 0)) emu cur
+    app = App {
+      appDraw         = draw,
+      appChooseCursor = neverShowCursor,
+      appHandleEvent  = handleEvent,
+      appStartEvent   = pure (),
+      appAttrMap      = const $ attrMap V.defAttr [
+        (screenAttr, fg `on` bg),
+        (curInsAttr, V.defAttr `V.withStyle` V.reverseVideo),
+        (brInsAttr , V.defAttr `V.withStyle` V.underline)
+      ]
+    }
+    builder = VCP.mkVty V.defaultConfig
   
+  chan <- newBChan 10
   void . forkIO $ forever $ do
     writeBChan chan Tick
     threadDelay delay
   
-  let builder = VCP.mkVty V.defaultConfig
-  let rf = renderScreen char2x3 2 3
-  cur <- liftIO getCurrentTime
-  let as = AppState rf (generate 16 (const 0)) emu cur
   initialVty <- builder
   _ <- customMain initialVty builder (Just chan) app as
   return ()

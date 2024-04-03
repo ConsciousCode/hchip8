@@ -114,6 +114,11 @@ split :: Eq a => [a] -> [a] -> [[a]]
 split sub ls = map (flip slice ls) $ zip (0:p1 xs) (xs ++ [length ls])
   where xs = findAll sub ls
 
+-- Split a list by sublist up to N times 
+splitN :: Eq a => Int -> [a] -> [a] -> [[a]]
+splitN n sub ls = map (flip slice ls) $ take (n + 1) $ zip (0:p1 xs) (xs ++ [length ls])
+  where xs = findAll sub ls
+
 -- Parse a hex string into an int
 hexInt :: String -> Maybe Int
 hexInt = foldl go (Just 0)
@@ -133,6 +138,3 @@ hexInt = foldl go (Just 0)
 -- Filter a list of all Nothing and return Just unpacked
 filterJust :: [Maybe a] -> [a]
 filterJust ms = [maybe undefined id m | m <- ms, isJust m]
-
--- Portable color datum
-data PColor = PColor Int Int Int

@@ -5,7 +5,7 @@ import qualified BrickMain as BM
 
 import Chip8 (decode, dis, disPseudo, newChip8, newEmulator)
 
-import Util (lpad, split, hexPad, hexInt, join, filterJust, PColor(PColor))
+import Util (lpad, split, hexPad, hexInt, join, filterJust, splitN)
 
 import qualified Data.ByteString.Lazy as BL
 import Data.Binary.Get (Get, isEmpty, getWord16be, runGet)
@@ -31,20 +31,62 @@ getWord16beList =  (go [])
 main :: IO ()
 main = getArgs >>= parse
 
+parseBreakpoints :: String -> [Int]
+parseBreakpoints = filterJust . map hexInt . split ","
+
+-- We can model arg parsing as a sequence of mutations on a model given
+--  the remaining arguments and some communication of how many of those
+--  arguments were consumed.
+argparse :: (a -> [String] -> (a, [String])) -> a -> [String] -> a
+argparse _ acc [] = acc
+argparse eat acc args
+  -- Sanity check, make sure we're actually consuming the args
+  | length args > length args' = argparse eat acc' args'
+  | otherwise = acc'
+  where (acc', args') = eat acc args
+
+data BrickArgs = BrickArgs {
+  baBPs :: [Int],  -- List of breakpoints
+  baRes :: String, -- Resolution type
+  baFg  :: String, -- Foreground color
+  baBg  :: String  -- Background color
+}
+  deriving (Show)
+
+-- It gets us this nice syntax here
+brick_ap :: [String] -> BrickArgs
+brick_ap = argparse go (BrickArgs [] "" "" "")
+  where
+    go bap ("-b":b:args) = (bap { baBPs = parseBreakpoints b }, args)
+    go bap ("-r":res:args) = (bap { baRes = res }, args)
+    go bap ("-c":fg_bg:args) = (bap', args)
+      where
+        xs = splitN 1 "," fg_bg
+        bap' = bap {
+          baFg = if length xs > 0 then xs!!0 else "",
+          baBg = if length xs > 1 then xs!!1 else ""
+        }
+    
+    go bap [] = (bap, [])
+    go bap (x:xs) = (bap, xs)
+
 parse ["-h"] = usage >> exit
 parse ["dis", file] = cliDis dis file
 parse ["pseudo", file] = cliDis disPseudo file
-parse ["brick", file] = brick file []
-parse ["brick", file, "-b", b] = brick file (parseBreakpoints b)
-parse [] = brick "resources/octojam1title.ch8" []
+parse ("brick":file:opts) = brick file (brick_ap opts)
+
+parse [] = brick "resources/octojam1title.ch8" (brick_ap [])
 parse _ = usage >> exit
 
-usage = putStrLn "Usage: chip8 cmd ...\n\
-  \  (nothing)              Run example in brick with no breakpoints.\n\
-  \  dis    <file>          Disassemble a file.\n\
-  \  pseudo <file>          Generate pseudocode disassembly.\n\
-  \  brick  <file> [-b bs]  Run in brick.\n\
-  \    bs Comma-separated list of hex breakpoints."
+usage = putStrLn "Usage: cabal run exes -- cmd ...\n\
+  \  (nothing)                                  Run example in brick with no breakpoints.\n\
+  \  dis    <file>                              Disassemble a file.\n\
+  \  pseudo <file>                              Generate pseudocode disassembly.\n\
+  \  brick  <file> [-b bs] [-r res] [-c fg,bg]  Run in brick.\n\
+  \    bs    Comma-separated list of hex breakpoints.\n\
+  \    res   Resolution/render type, one of: ascii, braille, 1x1, 1x2, 2x2, 2x3. Default 2x3\n\
+  \    fg    Foreground color (red, blue, green, yellow, white, black, magenta, cyan, #xxx, or #xxxxxx)\n\
+  \    bg    Background color"
 exit = exitSuccess
 
 -- Disassemble with a given dis function
@@ -57,17 +99,13 @@ cliDis df file = do
     | (addr, ins) <- zip [0..] prog
     ]
 
-parseBreakpoints :: String -> [Int]
-parseBreakpoints = filterJust . map hexInt . split ","
-
-brick :: String -> [Int] -> IO ()
-brick file bs = do
+brick :: String -> BrickArgs -> IO ()
+brick file args@(BrickArgs bs rt fg bg) = do
   rom  <- BL.readFile file
   seed <- randomIO
-  let rng = randomRs (0, 255) (mkStdGen seed)
-  let vm  = newChip8 (BL.unpack rom) rng
-  putStrLn $ show bs
-  let emu = newEmulator vm bs
-  let fg = PColor 0 0 0
-  let bg = PColor 0 0 0
-  BM.run fg bg emu
+  putStrLn (show args)
+  let
+    rng = randomRs (0, 255) (mkStdGen seed)
+    vm  = newChip8 (BL.unpack rom) rng
+    emu = newEmulator vm bs
+  BM.run rt fg bg emu

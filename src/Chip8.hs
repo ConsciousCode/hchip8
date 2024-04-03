@@ -1,17 +1,5 @@
 {-# LANGUAGE BlockArguments #-}
 
-{-
-CHIP-8 is an interpreted virtual machine designed for portable video games.
- It has a much simpler design than most actual hardware and a number of games
- and opcode extensions created for it. The base design has 35 opcodes with
- fixed 16-bit big-endian codes.
-
-References
- - https://en.wikipedia.org/wiki/CHIP-8
- - https://chip-8.github.io/database/
- - https://github.com/gcsmith/gchip/
- -}
-
 module Chip8 where
 
 import Control.Monad.State (State, get, gets, modify, when, execState)
