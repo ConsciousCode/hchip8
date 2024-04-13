@@ -9,7 +9,9 @@ This project is a Haskell implementation of the CHIP-8 virtual machine for my CS
 
 The project description is very open-ended, all we were told was to make "something" using Haskell and either Brick or Gloss. At first, I wanted to emulate SNES, but it was very obvious very quickly it was way too complex for the time I had and my familiarity with Haskell. NES was also too complex, and Atari 2600 was just on the border of complexity. I tried to implement that, but after spending an inordinate amount of time just on decoding, I realized the bus topology makes it very difficult to implement in Haskell without some kind of message-passing system and it was a bit too much. Finally I got to CHIP-8 which I've implemented before, though I lost the code.
 
-Even though we only needed to write a program using Brick or Gloss, I had an interesting idea for how to make it work in a TUI and it just inherently works better as a GUI. Plus, most of the work is in the virtual machine itself.
+## Rendering
+### Brick
+Even though we only needed to write a program using Brick or Gloss, I had an interesting idea for how to make it work in a TUI and it just inherently works better as a GUI. Plus, most of the work is in the virtual machine itself. I first implemented a braille rendering mode, then remembered the unicode box drawing block. Finally I added a few ASCII modes for fun, but they look hideous. The available modes are in `-h`.
 
 ## Usage
 The CLI is a bit brittle because flags are based on pattern matching rather than an actual argparse-esque library, so order matters.

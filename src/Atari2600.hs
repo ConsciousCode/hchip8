@@ -85,6 +85,19 @@ Assembly syntax:
    - Interprets that as an absolute address
    - Increments the byte at that address
  -}
+ 
+{-- Investigating a better model --}
+
+data BusState = BusPass | BusRead Word16 | BusWrite Word8
+
+class BusModule a where
+  modStep :: a -> BusState -> State a BusState
+
+data Atari2600 = Atari2600 {
+  busModules :: [BusModule]
+}
+
+{-----------------------------------}
 
 -- Convert a BCD integer to binary
 dec2bin :: Int -> Int

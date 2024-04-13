@@ -1,34 +1,52 @@
 {-# LANGUAGE BlockArguments #-}
 
-module BrickMain (run) where
+module BrickMain (run, Args(Args, baBPs, baRes, baFg, baBg)) where
 
-import Brick ((<+>), (<=>), App(..), Padding(Pad, Max), padRight, halt, customMain, neverShowCursor, hBox, vBox, hLimit, vLimit, hSize, padBottom, fill, AttrMap, attrMap, attrName, AttrName, withAttr, on, fg, setAvailableSize)
-import Brick.Types (Widget, BrickEvent(..), EventM, put)
-import Brick.Widgets.Border (borderWithLabel, hBorder, vBorder, border)
+import Brick ((<+>), (<=>), App(..), Padding(Max), padRight, halt, customMain, neverShowCursor, hBox, vBox, hLimit, vLimit, fill, attrMap, attrName, AttrName, withAttr, on, setAvailableSize)
+import Brick.Types (Widget, BrickEvent(..), EventM)
+import Brick.Widgets.Border (borderWithLabel, vBorder, border)
 import Brick.Widgets.Core (str)
-import Brick.Widgets.Table (table, renderTable)
+import Brick.Widgets.Table (table, renderTable, rowBorders, columnBorders)
 import Brick.BChan (newBChan, writeBChan)
-import Brick.AttrMap ()
 
 import qualified Graphics.Vty as V
 import qualified Graphics.Vty.CrossPlatform as VCP
 import Graphics.Vty.Input.Events (Key(KChar, KEnter, KLeft, KRight))
 
 import Data.Time.Clock (UTCTime, getCurrentTime, diffUTCTime, nominalDiffTimeToSeconds)
-import Data.Char (chr)
-import Data.Bits ((.|.), bit)
+import Data.Char (toLower)
+import Data.Bits ((.|.), bit, testBit)
 import Data.List (elemIndex)
-import Data.Vector.Unboxed (Vector, generate, toList, (!), (//))
+import Data.Vector.Unboxed (Vector, generate, (!), (//))
 
 import Control.Concurrent (threadDelay, forkIO)
 import Control.Monad (void, forever)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.State (modify, get, gets, when, mapM_)
+import Control.Monad.State (modify, gets, when)
 
-import Chip8 (Chip8, Emulator, pixel, width, height, emulate, countdown, rPC, rI, rV, delayT, soundT, readWord, dis, stack, latest, update, states, stPos, togglePause, forward, rewind, current, keyEvent, keys, clearKeys, cycles, frames)
-import Util (lpad, rpad, hexPad, hexInt, intersperse, join, vReg, m1, bin, filterJust)
+import Chip8 (Chip8, Emulator, pixel, width, height, emulate, countdown, rPC, rI, rV, delayT, soundT, readWord, dis, stack, latest, update, states, stPos, togglePause, forward, rewind, current, keyEvent, keys, cycles, frames)
+import Util (rpad, hexPad, hexDigit, hexInt, intersperse, vReg, m1, unfold)
 
 type Vec = Vector
+
+-- Chip-8 hex keypad mapping
+keypad :: String
+keypad = -- Actual keys
+  "1234\
+  \qwer\
+  \asdf\
+  \zxcv"
+
+-- Emulating this COSMAC keypad
+cosmac :: String
+cosmac =
+  "123C\
+  \456D\
+  \789E\
+  \A0BF"
+
+keyClear :: Int
+keyClear = 33
 
 screenAttr :: AttrName
 screenAttr = attrName "screenAttr"
@@ -38,6 +56,9 @@ curInsAttr = attrName "curInsAttr"
 
 brInsAttr :: AttrName
 brInsAttr = attrName "brInsAttr"
+
+keySelAttr :: AttrName
+keySelAttr = attrName "keySelAttr"
 
 -- Construct a function which takes a function for getting bits and returns
 --  a character representing some block of pixels
@@ -73,8 +94,14 @@ Once I implemented using braille, I remembered box drawing and generalized.
  box drawing (only 1x1, 1x2, and 2x3), but it's also a tad ugly.
  -}
 
-charAscii :: (Int -> Int -> Bool) -> Char
-charAscii = charFrom " #" [[0]]
+charAscii1x1 :: (Int -> Int -> Bool) -> Char
+charAscii1x1 = charFrom " #" [[0]]
+
+charAscii1x2 :: (Int -> Int -> Bool) -> Char
+charAscii1x2 = charFrom " '.:" [[0], [1]]
+
+charAscii2x2 :: (Int -> Int -> Bool) -> Char
+charAscii2x2 = charFrom " `'^,;/r.\\|7_LJ#" [[0, 1], [2, 3]]
 
 char1x1 :: (Int -> Int -> Bool) -> Char
 char1x1 = charFrom " █" [[0]]
@@ -97,15 +124,15 @@ char2x3 = charFrom cs [[0, 1], [2, 3], [4, 5]]
 -- Render the screen using a pixel block rendering function
 renderScreen :: ((Int -> Int -> Bool) -> Char) -> Int -> Int -> Chip8 -> String
 renderScreen cf w h vm = concat [
-    [cf (getb (x*w) (y*h))
-              | x <- m1 [1..(width  vm `div` w)]
-    ] ++ "\n" | y <- m1 [1..(height vm `div` h)]
+    [cf (getb (x*w) (y*h)) -- + w/h - 1 to round up
+              | x <- m1 [1..((width  vm + w - 1) `div` w)]
+    ] ++ "\n" | y <- m1 [1..((height vm + h - 1) `div` h)]
   ]
   where getb x y ox oy = pixel vm (x + ox) (y + oy)
 
 -- Placeholder for what to put on the screen's border
 renderLabel :: AppState -> String
-renderLabel as = "" -- show (xxx as)
+renderLabel _ = "" -- show (xxx as)
 
 -- Draw a widget for a register
 drawV :: Chip8 -> Int -> Widget ()
@@ -123,9 +150,6 @@ drawVFile vm = borderWithLabel (str "VX")
 drawStack :: Chip8 -> Widget ()
 drawStack vm = build (stack vm)
   where
-    ms = 12
-    pad [] = pad [str "   "]
-    pad xs = (padBottom (Pad (ms - length xs)) . vBox) xs
     build sp =
       (borderWithLabel (str "SP") .
       hLimit 3 . vLimit 12 . vBox)
@@ -133,7 +157,7 @@ drawStack vm = build (stack vm)
 
 -- Draw the VM status
 drawStatus :: Chip8 -> Widget ()
-drawStatus vm = vBox [ss, borderWithLabel (str "Keys") (str ks)]
+drawStatus vm = ss
   where
     ss = vLimit 3 . border . hBox . intersperse vBorder . map str $ [
       "I "      ++ hexPad 3 (rI     vm),
@@ -141,7 +165,19 @@ drawStatus vm = vBox [ss, borderWithLabel (str "Keys") (str ks)]
       "sound "  ++ hexPad 2 (soundT vm),
       "cycles " ++ show     (cycles vm),
       "frames " ++ show     (frames vm)]
-    ks = (reverse . lpad "0" 16 . bin . keys $ vm) ++ "\n" ++ ['0'..'9'] ++ ['A'..'F']
+
+-- Draw keys and their selections
+drawKeypad :: Chip8 -> Widget ()
+drawKeypad vm = renderTable
+  . rowBorders False . columnBorders False . table
+  . reverse . unfold (not . null) (map go . take 4) (drop 4) $ cosmac
+  where
+    go k
+      | keys vm `testBit` xk = withAttr keySelAttr key
+      | otherwise = key
+      where
+        key = str [k]
+        (Just xk) = hexDigit k
 
 -- Draw one opcode
 drawCode :: Chip8 -> Int -> Widget ()
@@ -185,7 +221,7 @@ drawScreen as = borderWithLabel label scr
 
 -- Draw the whole program
 draw :: AppState -> [Widget ()]
-draw as = [drawScreen as <+> drawVFile vm <=> drawStatus vm <=> drawCodesBox emu <+> drawStack vm]
+draw as = [drawScreen as <+> drawVFile vm <=> drawStatus vm <=> (drawCodesBox emu <+> drawKeypad vm) <+> drawStack vm]
   where
     emu = emulator as
     vm = current emu
@@ -198,6 +234,14 @@ data AppState = AppState {
   emulator  :: Emulator, -- VM state
   lastFrame :: UTCTime   -- Last time a frame occurred
 }
+
+data Args = Args {
+  baBPs :: [Int],  -- List of breakpoints
+  baRes :: String, -- Resolution type
+  baFg  :: String, -- Foreground color
+  baBg  :: String  -- Background color
+}
+  deriving (Show)
 
 -- Update the emulator with a mutation function
 updateEmu :: (Emulator -> Emulator) -> AppState -> AppState
@@ -216,7 +260,7 @@ handleEvent (AppEvent Tick) = do
     mapM_ (modify . updateEmu . update) [
       keyEvent i False
       | i <- [0..15],
-        fs - kt!i > 40 -- clear key after 30 frames / 0.5 seconds
+        fs - kt!i > keyClear
       ]
     modify $ \s -> s {
       emulator  = update countdown (emulator s),
@@ -230,83 +274,73 @@ handleEvent (VtyEvent (V.EvKey (V.KChar 'c') [V.MCtrl])) = halt
 
 handleEvent (VtyEvent (V.EvKey key [])) = do
   case key of
-    KEnter -> modify $ updateEmu togglePause
-    KLeft  -> modify $ updateEmu rewind
-    KRight -> modify $ updateEmu forward
-    KChar c
-      | c `elem` kp -> case c `elemIndex` kp of
-        Nothing -> pure ()
-        Just k  -> do
-          let ixk = ix!!k
-          emu <- gets emulator
-          modify $ \s -> s {
-            emulator = update (keyEvent ixk True) emu,
-            keyTimes = keyTimes s//[(ixk, frames (latest emu))]
-          }
+    KEnter  -> modify $ updateEmu togglePause
+    KLeft   -> modify $ updateEmu rewind
+    KRight  -> modify $ updateEmu forward
+    KChar c -> case c `elemIndex` keypad of
+      Nothing -> pure ()
+      Just k  -> do
+        let (Just xk) = hexDigit (cosmac!!k)
+        emu <- gets emulator
+        modify $ \s -> s {
+          emulator = update (keyEvent xk True) emu,
+          keyTimes = keyTimes s//[(xk, frames (latest emu))]
+        }
           
     _ -> pure ()
-    where -- Chip-8 hex keypad mapping
-      kp = -- Actual keys
-        "1234\
-        \qwer\
-        \asdf\
-        \zxcv"
-      -- Emulating this COSMAC keypad
-      ix = filterJust $ map (\x -> hexInt [x])
-        "123C\
-        \456D\
-        \789E\
-        \A0BF"
 
 -- Any other event just do nothing
 handleEvent _ = return ()
 
 strColor :: String -> Maybe V.Color
-strColor ""        = Nothing -- So head later won't panic
-strColor "red"     = Just V.red
-strColor "blue"    = Just V.blue
-strColor "green"   = Just V.green
-strColor "yellow"  = Just V.yellow
-strColor "white"   = Just V.white
-strColor "black"   = Just V.black
-strColor "magenta" = Just V.magenta
-strColor "cyan"    = Just V.cyan
-strColor color
-  | head color == '#' = case length color of
-    4 -> case hexInt (tail color) of
-      Nothing  -> Nothing
-      Just ccc -> Just $ V.color240 (r*17) (g*17) (b*17) -- x -> xx
-        where
-          (b, cc) = ccc `divMod` 16
-          (r,  g) =  cc `divMod` 16
-    7 -> case hexInt (tail color) of
-      Nothing  -> Nothing
-      Just c6  -> Just $ V.color240 r g b
-        where
-          (b, c4) = c6 `divMod` 256
-          (r,  g) = c4 `divMod` 256
-    _ -> Nothing
-  | otherwise = Nothing
+strColor c = case map toLower c of
+  ""        -> Nothing -- So head later won't panic
+  "red"     -> Just V.red
+  "blue"    -> Just V.blue
+  "green"   -> Just V.green
+  "yellow"  -> Just V.yellow
+  "white"   -> Just V.white
+  "black"   -> Just V.black
+  "magenta" -> Just V.magenta
+  "cyan"    -> Just V.cyan
+  _
+    | head c == '#' -> case length c of
+      4 -> case hexInt (tail c) of
+        Nothing -> Nothing -- not hex
+        Just c3 -> Just $ V.color240 (r*0x11) (g*0x11) (b*0x11) -- x -> xx
+          where
+            (c2, b) = c3 `divMod` 16
+            (r,  g) = c2 `divMod` 16
+      7 -> case hexInt (tail c) of
+        Nothing -> Nothing -- not hex
+        Just c6 -> Just $ V.color240 r g b
+          where
+            (c4, b) = c6 `divMod` 256
+            (r,  g) = c4 `divMod` 256
+      _ -> Nothing
+    | otherwise -> Nothing
 
 strRenderType :: String -> (Chip8 -> String)
-strRenderType srt = case srt of
-  "ascii"   -> renderScreen charAscii   1 1
-  "braille" -> renderScreen charBraille 2 4
-  "1x1"     -> renderScreen char1x1     1 1
-  "1x2"     -> renderScreen char1x2     1 2
-  "2x2"     -> renderScreen char2x2     2 2
-  "2x3"     -> renderScreen char2x3     2 3
-  _         -> strRenderType "2x3"
+strRenderType srt = case map toLower srt of
+  "ascii1x1" -> renderScreen charAscii1x1 1 1
+  "ascii1x2" -> renderScreen charAscii1x2 1 2
+  "ascii2x2" -> renderScreen charAscii2x2 2 2
+  "braille"  -> renderScreen charBraille  2 4
+  "1x1"      -> renderScreen char1x1      1 1
+  "1x2"      -> renderScreen char1x2      1 2
+  "2x2"      -> renderScreen char2x2      2 2
+  "2x3"      -> renderScreen char2x3      2 3
+  _          -> strRenderType "2x3" -- default
 
 -- Now we can finally pull it all together
-run :: String -> String -> String -> Emulator -> IO ()
-run rts fgs bgs emu = do
+run :: Args -> Emulator -> IO ()
+run args emu = do
   cur <- liftIO getCurrentTime
   let
-    delay = 1000 -- 1 μs ~ 1 MHz
-    rf = strRenderType rts
-    fg = maybe V.white id $ strColor fgs
-    bg = maybe V.black id $ strColor bgs
+    delay = 1000 -- 1 ms ~ 1 kHz
+    rf = strRenderType (baRes args)
+    fc = maybe V.white id $ strColor (baFg args)
+    bc = maybe V.black id $ strColor (baBg args)
     
     as = AppState rf (generate 16 (const 0)) emu cur
     app = App {
@@ -315,9 +349,10 @@ run rts fgs bgs emu = do
       appHandleEvent  = handleEvent,
       appStartEvent   = pure (),
       appAttrMap      = const $ attrMap V.defAttr [
-        (screenAttr, fg `on` bg),
+        (screenAttr, fc `on` bc),
         (curInsAttr, V.defAttr `V.withStyle` V.reverseVideo),
-        (brInsAttr , V.defAttr `V.withStyle` V.underline)
+        (brInsAttr , V.defAttr `V.withStyle` V.underline),
+        (keySelAttr, V.defAttr `V.withStyle` V.reverseVideo)
       ]
     }
     builder = VCP.mkVty V.defaultConfig

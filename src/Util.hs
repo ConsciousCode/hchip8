@@ -1,7 +1,6 @@
 module Util where
 
-import Data.Char (ord, chr, isDigit)
-import Data.List (elemIndex)
+import Data.Char (ord, isDigit, isHexDigit, digitToInt, toLower)
 import Data.Maybe (Maybe(Nothing, Just), isJust)
 
 {-
@@ -32,6 +31,12 @@ bin = toBase 2 "01"
 hex :: Integral a => a -> String
 hex = toBase 16 (['0'..'9'] ++ ['a'..'f'])
 
+hexDigit :: Char -> Maybe Int
+hexDigit c
+  | isDigit c    = Just $ digitToInt c
+  | isHexDigit c = Just $ ord (toLower c) - ord 'a' + 10
+  | otherwise    = Nothing
+
 -- Customizable padding
 -- f: space -> to wrap -> wrapped
 -- fill: list to fill with
@@ -49,7 +54,7 @@ lpad = pad (++)
 rpad :: [a] -> Int -> [a] -> [a]
 rpad = pad (flip (++))
 
--- I did this so often I need a util
+-- I did this so often I needed a util
 hexPad :: Integral a => Int -> a -> String
 hexPad n s = lpad "0" n $ hex s
 
@@ -109,15 +114,23 @@ findAll needle haystack = reverse . snd $ findAll' haystack (0, [])
 slice :: Eq a => (Int, Int) -> [a] -> [a]
 slice (start, end) = take (end - start) . drop start
 
--- Split a list by a given sublist
-split :: Eq a => [a] -> [a] -> [[a]]
-split sub ls = map (flip slice ls) $ zip (0:p1 xs) (xs ++ [length ls])
+-- A take function which has the option to just return the whole list (as if n=inf)
+takeMaybe :: Maybe Int -> [a] -> [a]
+takeMaybe Nothing  = id
+takeMaybe (Just n) = take n
+
+-- Core algorithm giving us the option to split N times
+splitMaybe :: Eq a => Maybe Int -> [a] -> [a] -> [[a]]
+splitMaybe mn sub ls = map (flip slice ls) $ takeMaybe mn $ zip (0:p1 xs) (xs ++ [length ls])
   where xs = findAll sub ls
+
+-- Split a list by a given sublist, no limit
+split :: Eq a => [a] -> [a] -> [[a]]
+split = splitMaybe Nothing
 
 -- Split a list by sublist up to N times 
 splitN :: Eq a => Int -> [a] -> [a] -> [[a]]
-splitN n sub ls = map (flip slice ls) $ take (n + 1) $ zip (0:p1 xs) (xs ++ [length ls])
-  where xs = findAll sub ls
+splitN n = splitMaybe (Just (n + 1))
 
 -- Parse a hex string into an int
 hexInt :: String -> Maybe Int
@@ -127,13 +140,6 @@ hexInt = foldl go (Just 0)
     go (Just acc) h = case hexDigit h of
       Nothing -> Nothing
       Just d  -> Just (acc*16 + d)
-    
-    hexDigit h
-      | isDigit h = Just (oh - ord '0')
-      | ord 'a' <= oh && oh <= ord 'f' = Just (oh - ord 'a' + 10)
-      | ord 'A' <= oh && oh <= ord 'F' = Just (oh - ord 'A' + 10)
-      | otherwise = Nothing
-      where oh = ord h
 
 -- Filter a list of all Nothing and return Just unpacked
 filterJust :: [Maybe a] -> [a]

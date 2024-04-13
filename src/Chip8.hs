@@ -166,6 +166,7 @@ bitBlit8 x y spr = do
 
 data Op =
     BAD -- Invalid instruction
+  -- Original instructions --
   | CLS -- CLear Screen
   | RET -- RETurn
   | JMP -- JuMP to address
@@ -197,6 +198,25 @@ data Op =
   | BCD -- store the BCD in I[:2]
   | STR -- STore Registers V0 to VX into I
   | LDR -- LoaD Registers V0 to VX into I
+  -- SCHIP --
+  | EXI -- EXit Interpreter
+  | DHR -- Disable High Resolution
+  | EHR -- Enable High Resolution
+  | WUM -- Write User Memory
+  | RUM -- Read User Memory
+  -- SCHIP 1.1 --
+  | SDU -- Scroll Display Up
+  | SDD -- Scroll Display Down
+  | SDR -- Scroll Display Right
+  | SDL -- Scroll Display Left
+  -- XO-CHIP --
+  -- Update STR/LDR to take XY operands
+  -- Skip instructions respect double-wide LDW
+  -- Clear/scroll only applies to selected drawing plane
+  | LDW -- LoaD Word, 16-bit integer into I
+  | SDP -- Select Drawing Plane
+  | SAB -- Store Audio Buffer
+  | PIT -- Set PITch register
   deriving (Show, Eq)
 
 -- Operands to be paired with an operation
@@ -262,6 +282,10 @@ applySkip p (OpXY x y) = do
   vy <- getV y
   let skip = p (fromIntegral vx) (fromIntegral vy)
   when skip $ modifyPC (+2)
+  pc <- gets rPC
+  -- Skip over the double-wide F000 NNNN instruction
+  b <- gets (readWord pc)
+  when (b == 0xF000) $ modifyPC (+2)
 
 applySkip p (OpXNN x nn) = do
   vx <- getV x
@@ -269,6 +293,14 @@ applySkip p (OpXNN x nn) = do
   when skip $ modifyPC (+2)
 
 applySkip _ _ = undefined
+
+applyScroll :: Int -> Int -> Chip8 -> Chip8
+applyScroll dx dy vm = vm {
+  screen = screen vm // [
+    (screenIndex (x + dx) (y + dy) vm, pixel vm x y)
+    | x <- [0..width  vm]
+    , y <- [0..height vm]]
+}
 
 {- Applications -}
 
@@ -408,6 +440,22 @@ apply LDR (OpX x) = do
     ii = fromIntegral i
     ix = fromIntegral x
   modify $ \s -> s { rV = v//zip [0..ix] (map (mem!) [ii..]) }
+
+-- apply SDU (OpX n)  = modify $ applyScroll 0 (-n)
+{-
+  | SDU -- Scroll Display Up
+  | SDD -- Scroll Display Down
+  | SDR -- Scroll Display Right
+  | SDL -- Scroll Display Left
+  -- XO-CHIP --
+  -- Update STR/LDR to take XY operands
+  -- Skip instructions respect double-wide LDW
+  -- Clear/scroll only applies to selected drawing plane
+  | LDW -- LoaD Word, 16-bit integer into I
+  | SDP -- Select Drawing Plane
+  | SAB -- Store Audio Buffer
+  | PIT -- Set PITch register
+-}
 
 apply op erands = do
   pc <- gets rPC
@@ -549,6 +597,7 @@ decode code   = Ins op (de code)
         0x07 -> (RDD, decodeX)
         0x0A -> (RDK, decodeX)
         0x15 -> (WRD, decodeX)
+        0x18 -> (WRS, decodeX)
         0x1E -> (ADI, decodeX)
         0x29 -> (SPR, decodeX)
         0x33 -> (BCD, decodeX)
