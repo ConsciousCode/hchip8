@@ -1,7 +1,24 @@
 module Util where
 
+import Data.List (elemIndex)
 import Data.Char (ord, isDigit, isHexDigit, digitToInt, toLower)
 import Data.Maybe (Maybe(Nothing, Just), isJust)
+
+-- Chip-8 hex keypad mapping
+keypad :: String
+keypad = -- Actual keys
+  "1234\
+  \qwer\
+  \asdf\
+  \zxcv"
+
+-- Emulating this COSMAC keypad
+cosmac :: String
+cosmac =
+  "123C\
+  \456D\
+  \789E\
+  \A0BF"
 
 {-
 General utilities - can you tell I like Python?
@@ -144,3 +161,6 @@ hexInt = foldl go (Just 0)
 -- Filter a list of all Nothing and return Just unpacked
 filterJust :: [Maybe a] -> [a]
 filterJust ms = [maybe undefined id m | m <- ms, isJust m]
+
+hexCosmac :: Char -> Maybe Int
+hexCosmac c = c`elemIndex` keypad >>= hexDigit . (cosmac!!)

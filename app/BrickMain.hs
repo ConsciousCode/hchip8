@@ -16,7 +16,6 @@ import Graphics.Vty.Input.Events (Key(KChar, KEnter, KLeft, KRight))
 import Data.Time.Clock (UTCTime, getCurrentTime, diffUTCTime, nominalDiffTimeToSeconds)
 import Data.Char (toLower)
 import Data.Bits ((.|.), bit, testBit)
-import Data.List (elemIndex)
 import Data.Vector.Unboxed (Vector, generate, (!), (//))
 
 import Control.Concurrent (threadDelay, forkIO)
@@ -25,25 +24,9 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.State (modify, gets, when)
 
 import Chip8 (Chip8, Emulator, pixel, width, height, emulate, countdown, rPC, rI, rV, delayT, soundT, readWord, dis, stack, latest, update, states, stPos, togglePause, forward, rewind, current, keyEvent, keys, cycles, frames)
-import Util (rpad, hexPad, hexDigit, hexInt, intersperse, vReg, m1, unfold)
+import Util (cosmac, rpad, hexPad, hexDigit, hexInt, intersperse, vReg, m1, unfold, hexCosmac)
 
 type Vec = Vector
-
--- Chip-8 hex keypad mapping
-keypad :: String
-keypad = -- Actual keys
-  "1234\
-  \qwer\
-  \asdf\
-  \zxcv"
-
--- Emulating this COSMAC keypad
-cosmac :: String
-cosmac =
-  "123C\
-  \456D\
-  \789E\
-  \A0BF"
 
 keyClear :: Int
 keyClear = 33
@@ -277,10 +260,9 @@ handleEvent (VtyEvent (V.EvKey key [])) = do
     KEnter  -> modify $ updateEmu togglePause
     KLeft   -> modify $ updateEmu rewind
     KRight  -> modify $ updateEmu forward
-    KChar c -> case c `elemIndex` keypad of
+    KChar c -> case hexCosmac c of
       Nothing -> pure ()
-      Just k  -> do
-        let (Just xk) = hexDigit (cosmac!!k)
+      Just xk -> do
         emu <- gets emulator
         modify $ \s -> s {
           emulator = update (keyEvent xk True) emu,
