@@ -2,7 +2,7 @@ module Main where
 
 -- import qualified GlossMain as GM
 import qualified BrickMain as BM
-import qualified GlossMain as GM
+-- import qualified GlossMain as GM
 
 import Chip8 (dis, disPseudo, newChip8, newEmulator)
 
@@ -62,6 +62,7 @@ brick_ap = argparse go (BM.Args [] "" "" "")
     go bap [] = (bap, [])
     go bap (_:xs) = (bap, xs)
 
+{-
 gloss_ap :: [String] -> GM.Args
 gloss_ap = argparse go (GM.Args "" "")
   where
@@ -72,12 +73,13 @@ gloss_ap = argparse go (GM.Args "" "")
           GM.gaFg = if length xs > 0 then xs!!0 else "",
           BM.gaBg = if length xs > 1 then xs!!1 else ""
         }
+-}
 
 parse :: [String] -> IO ()
 parse ["-h"] = usage >> exit
 parse ["dis", file] = cliDis dis file
 parse ["pseudo", file] = cliDis disPseudo file
-parse ("gloss":file:opts) = gloss file (gloss_ap opts)
+-- parse ("gloss":file:opts) = gloss file (gloss_ap opts)
 parse ("brick":file:opts) = brick file (brick_ap opts)
 
 parse [] = brick "resources/octojam1title.ch8" (brick_ap [])

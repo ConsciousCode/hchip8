@@ -92,9 +92,6 @@ char1x1 = charFrom " █" [[0]]
 char1x2 :: (Int -> Int -> Bool) -> Char
 char1x2 = charFrom " ▀▄█" [[0], [1]]
 
-char1x8 :: (Int -> Int -> Bool) -> Char
-char1x8 = charFrom "🌕🌖🌗🌘🌑🌒🌓🌔" [[0..8]]
-
 char2x2 :: (Int -> Int -> Bool) -> Char
 char2x2 = charFrom " ▘▝▀▖▌▞▛▗▚▐▜▄▙▟█" [[0, 1], [2, 3]]
 
@@ -313,8 +310,6 @@ strRenderType srt = case map toLower srt of
   "braille"  -> renderScreen charBraille  2 4
   "1x1"      -> renderScreen char1x1      1 1
   "1x2"      -> renderScreen char1x2      1 2
-  "1x8"      -> renderScreen char1x8      1 8
-  "moon"     -> renderScreen char1x8      1 8
   "2x2"      -> renderScreen char2x2      2 2
   "2x3"      -> renderScreen char2x3      2 3
   _          -> strRenderType "2x3" -- default
