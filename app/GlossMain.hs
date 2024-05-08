@@ -2,20 +2,22 @@
 
 module GlossMain (run) where
 
-import Graphics.Gloss (Picture, play, bitmapOfByteString, BitmapFormat)
+import Graphics.Gloss (Picture, play, black, bitmapOfByteString, BitmapFormat(BitmapFormat), Display(InWindow))
 import qualified Graphics.Gloss.Interface.Pure.Game as G
-import Graphics.Gloss.Interface.Pure.Game (Event(EventKey))
+import Graphics.Gloss.Interface.Pure.Game (Event(EventKey), KeyState(Down))
 import Graphics.Gloss.Data.Picture (rectangleSolid)
 import Graphics.Gloss.Data.Bitmap (RowOrder(TopToBottom), PixelFormat(PxRGBA))
 import Graphics.Gloss.Data.ViewPort (ViewPort)
 
+import Data.Char (toLower)
 import Data.Word (Word8, Word16, Word32)
 import Data.Bits (shiftR, (.&.))
-import Control.Monad.State (execState)
+import Data.ByteString (ByteString, pack)
+import Control.Monad.State (execState, gets, modify)
 
 import Chip8
 
-import Util (filterJust)
+import Util (filterJust, hexInt, hexCosmac)
 
 data AppState = AppState {
   emulator :: Emulator,
@@ -32,12 +34,12 @@ data Args = Args {
 unpackRGBA :: Word32 -> [Word8]
 unpackRGBA w = [w2, w1, w0, 0xff]
   where
-    w0 = w             .&. 0xff
-    w1 = w `shiftR` 8  .&. 0xff
-    w2 = w `shiftR` 16 .&. 0xff
+    w0 = fromIntegral (w             .&. 0xff) :: Word8
+    w1 = fromIntegral (w `shiftR` 8  .&. 0xff) :: Word8
+    w2 = fromIntegral (w `shiftR` 16 .&. 0xff) :: Word8
 
-unpackPxWord :: [Word32] -> [Word8]
-unpackPxWord = concat . map unpackRGBA
+unpackPxWord :: [Word32] -> ByteString
+unpackPxWord = pack . concat . map unpackRGBA
 
 render :: AppState -> Picture
 render as = bitmapOfByteString 64 32 (BitmapFormat TopToBottom PxRGBA) px False
@@ -50,10 +52,10 @@ render as = bitmapOfByteString 64 32 (BitmapFormat TopToBottom PxRGBA) px False
 -- Now the last thing we need is to define the function to advance
 -- the state
 step :: ViewPort -> Float -> AppState -> AppState
-step vp s = execState do
+step vp sec = execState do
   emu <- gets emulator
   old <- gets resTime
-  let res = old + s
+  let res = old + sec
   modify $ \s -> 
     if res >= 1/60 then 
       s {
@@ -66,7 +68,7 @@ step vp s = execState do
       }
 
 handleEvent :: Event -> AppState -> AppState
-handleEvent (EventKey (G.Char c) ks _ _ _) =
+handleEvent (EventKey (G.Char c) ks _ _) = execState
   case hexCosmac c of
     Nothing -> pure ()
     Just xk -> do
@@ -90,23 +92,23 @@ strColor c = case map toLower c of
     | head c == '#' -> case length c of
       4 -> case hexInt (tail c) of
         Nothing -> Nothing -- not hex
-        Just c3 -> Just (r*0x11 + g*0x11 + b*0x11) -- x -> xx
+        Just c3 -> Just (fromIntegral (r*0x11 + g*0x11 + b*0x11) :: Word32) -- x -> xx
           where
             (c2, b) = c3 `divMod` 16
             (r,  g) = c2 `divMod` 16
-      7 -> hexInt (tail c)
+      7 -> hexInt (tail c) >>= \x -> Just (fromIntegral x :: Word32)
       _ -> Nothing
     | otherwise -> Nothing
 
 -- Now we need just need to piece it all together
-run :: Emulator -> IO ()
+run :: Args -> Emulator -> IO ()
 run args emu = do
   let
     fps = 60
     win = InWindow "CHIP-8" (640, 320) (0, 0)
     as  = AppState {
       emulator = emu,
-      fgColor  = strColor (gaFg args),
-      bgColor  = strColor (gaBg args)
+      fgColor  = maybe 0xffffff id (strColor (gaFg args)),
+      bgColor  = maybe 0x000000 id (strColor (gaBg args))
     }
   play win black fps as render handleEvent step
