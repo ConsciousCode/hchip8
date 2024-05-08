@@ -34,7 +34,7 @@ library
 executable chip8
     import:           warnings
     main-is:          Main.hs
-    other-modules:    BrickMain
+    other-modules:    BrickMain, GlossMain
     build-depends:    base ^>=4.13.0.0
                     , binary
                     , bytestring
